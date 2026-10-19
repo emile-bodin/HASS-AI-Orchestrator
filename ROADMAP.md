@@ -1,6 +1,6 @@
 # 🗺️ AI Orchestrator - Product Roadmap
 
-**Current Version**: v0.13.12 (Hot-loaded specialists, entity selection and persistent pause)
+**Current Version**: v0.13.13 (Backward-compatible Ollama add-on options)
 
 This roadmap outlines the strategic direction for the AI Orchestrator. It focuses on evolving from a "text-based automation manager" to a fully multi-modal, voice-interactive home presence.
 

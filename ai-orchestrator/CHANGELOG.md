@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.13.13] - 2026-10-19
+### Fixed
+- Make ollama_mode and internal_ollama_port optional in the add-on schema so existing saved configurations remain valid after upgrading. New installations retain auto mode and port 11435 defaults; missing fields use the existing runtime defaults.
+- Added a focused schema/default regression check. No manual configuration additions are required.
+
 ## [0.13.12] - 2026-10-19
 ### Fixed — Bundled Ollama lifecycle
 - Start the managed server with persistent HOME/models and explicit f16 KV cache. Use a dedicated configurable loopback port (11435), refuse occupied ports, verify owned-process liveness and supervise backend/server shutdown together.

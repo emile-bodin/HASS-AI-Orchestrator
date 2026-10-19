@@ -1,6 +1,11 @@
 # Changelog
 <br>
 
+## [0.13.13] - 2026-10-19
+### Fixed
+- Make ollama_mode and internal_ollama_port optional in the add-on schema so existing saved configurations remain valid after upgrading. New installations retain auto mode and port 11435 defaults; missing fields use the existing runtime defaults.
+- Added a focused schema/default regression check. No manual configuration additions are required.
+
 ## [0.13.12] - 2026-10-19
 ### Fixed — Bundled Ollama lifecycle
 - Persistent HOME/model storage, explicit f16 KV cache, dedicated configurable port 11435, occupied-port refusal and owned-process supervision. RAG uses the effective endpoint. External servers remain untouched; see OLLAMA_RUNTIME.md.
