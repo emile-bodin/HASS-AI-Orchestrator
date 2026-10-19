@@ -97,16 +97,35 @@ def test_oauth_chat_provider_uses_responses_api(monkeypatch):
 
     class FakeResponse:
         output_text = "hello"
+        status = "completed"
+        output = []
+
+    class FakeStream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def __iter__(self):
+            from types import SimpleNamespace
+            yield SimpleNamespace(type="response.completed", response=FakeResponse())
 
     class FakeResponses:
         def create(self, **kwargs):
             calls.update(kwargs)
-            return FakeResponse()
+            return FakeStream()
 
     class FakeOpenAI:
         def __init__(self, **kwargs):
             calls["client"] = kwargs
             self.responses = FakeResponses()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
 
     class FakeModule:
         OpenAI = FakeOpenAI
