@@ -476,6 +476,104 @@ async def test_read_only_plan_mode_does_not_enter_approval_queue(stubbed_agent_f
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["plan", "auto"])
+@pytest.mark.parametrize("with_intent", [False, True])
+async def test_llm_failure_never_creates_or_executes_a_plan(stubbed_agent_factory, mode, with_intent):
+    from reasoning_harness import LLMResponse, ToolCall
+
+    responses = []
+    if with_intent:
+        responses.append(LLMResponse(content="planning", tool_calls=[
+            ToolCall(id="c1", name="turn_on_light", arguments={"entity_id": "light.kitchen"}),
+        ]))
+    responses.append(LLMResponse(content=""))
+    agent, plan_store, fired = stubbed_agent_factory(responses)
+    events = [event async for event in agent.run_streaming("check lights", mode=mode)]
+    final = next(event["data"] for event in events if event["type"] == "final")
+    assert final["stopped_reason"] == "llm_error"
+    assert final["plan"] is None
+    assert final["executed_inline"] is False
+    assert fired == []
+    assert plan_store.list() == []
+    assert not any(event.get("plan") for event in events if event["type"] == "plan")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_final", [False, True])
+async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agent_factory, empty_final):
+    import json
+    import httpx
+    import openai
+    from reasoning_harness import OpenAIResponsesBackend, ToolSemantics
+    from tests.test_oauth_responses_streaming import Store, completed, sse
+
+    agent, plan_store, fired = stubbed_agent_factory([])
+    observed = []
+    fixture_states = [{"entity_id": "light.fixture", "state": "on"}]
+
+    async def read_lights(name, arguments):
+        observed.append((name, arguments))
+        return {"lights": fixture_states}
+
+    agent.registry._routes.clear()
+    agent.registry.register("fixture_ha", [{"type": "function", "function": {
+        "name": "list_lights", "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    }}], read_lights, semantics=ToolSemantics(read_only=True, parallel_safe=True))
+    requests = []
+    reasoning = {"type": "reasoning", "id": "rs", "summary": [], "encrypted_content": "opaque-fixture"}
+    commentary = {"type": "message", "id": "progress", "role": "assistant", "status": "completed",
+                  "phase": "commentary", "content": [{"type": "output_text", "text": "Checking lights.", "annotations": []}]}
+    call = {"type": "function_call", "call_id": "call_lights", "id": "fc", "status": "completed",
+            "name": "list_lights", "arguments": "{}"}
+
+    def handler(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body["stream"] is True and body["store"] is False
+        if len(requests) == 1:
+            assert body["tools"][0]["name"] == "list_lights"
+            output = [reasoning, commentary, call]
+        else:
+            assert len(requests) == 2
+            assert body["input"][1:4] == [reasoning, commentary, call]
+            observation = body["input"][-1]
+            assert observation["type"] == "function_call_output"
+            assert observation["call_id"] == "call_lights"
+            payload = json.loads(observation["output"])
+            assert payload["ok"] is True
+            assert payload["lights"] == fixture_states
+            output = [] if empty_final else [{"type": "message", "id": "answer", "role": "assistant",
+                "status": "completed", "phase": "final_answer", "content": [{"type": "output_text",
+                "text": f"{payload['lights'][0]['entity_id']}: {payload['lights'][0]['state']}", "annotations": []}]}]
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse([completed(output)]))
+
+    backend = OpenAIResponsesBackend(api_key="test", oauth_store=Store())
+    await backend._client.close()
+    async with openai.AsyncOpenAI(api_key="test", max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))) as client:
+        backend._client = client
+        agent.llm = agent.harness.llm = backend
+        events = [event async for event in agent.run_streaming("get all light statusses", mode="plan")]
+    final = next(event["data"] for event in events if event["type"] == "final")
+    assert len(requests) == 2
+    assert observed == [("list_lights", {})]
+    assert final["successful_tool_calls"] == 1
+    assert final["tool_calls"] == 1
+    assert any(event["type"] == "tool_call" for event in events)
+    assert fired == []
+    if empty_final:
+        assert final["stopped_reason"] == "llm_error"
+        assert "empty output" in final["answer"]
+        assert final["plan"] is None
+        assert plan_store.list() == []
+    else:
+        assert final["stopped_reason"] == "final"
+        assert final["answer"] == "light.fixture: on"
+        assert final["iterations"] == 2
+        assert final["plan"]["status"] == "executed"
+        assert plan_store.get(final["plan"]["id"]).status == "executed"
+
+
+@pytest.mark.asyncio
 async def test_auto_mode_executes_inline_when_no_high_impact(stubbed_agent_factory):
     from reasoning_harness import LLMResponse, ToolCall
 

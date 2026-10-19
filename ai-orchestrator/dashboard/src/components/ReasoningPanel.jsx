@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { PromptLibrary } from './PromptLibrary';
 import { ReasoningTrace } from './ReasoningTrace';
+import { getRunOutcome } from './runOutcome';
 
 const FALLBACK_PROFILES = [
     {
@@ -131,6 +132,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
     useEffect(() => () => abortRef.current?.abort(), []);
 
     const profiles = info?.profiles?.length ? info.profiles : FALLBACK_PROFILES;
+    const outcome = getRunOutcome(result);
 
     const appendEvent = event => setEvents(previous => [...previous, {
         id: `${Date.now()}-${previous.length}`,
@@ -173,8 +175,9 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
             setPhase(payload.plan?.requires_approval ? 'Preparing your review' : 'Finalising the outcome');
             if (payload.plan) appendEvent({ type: 'plan', plan: payload.plan, content: payload.plan.risk_summary, status: 'complete' });
         } else if (eventType === 'final') {
-            setResult(payload.data || payload);
-            setPhase('Run complete');
+            const finalResult = payload.data || payload;
+            setResult(finalResult);
+            setPhase(getRunOutcome(finalResult).label);
         } else if (eventType === 'error') {
             throw new Error(payload.error || 'The reasoning run failed.');
         }
@@ -334,7 +337,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                 <section className="cp-active-run" aria-live="polite">
                     <div className="cp-active-run-heading">
                         <span className={`cp-run-orb ${running ? 'is-running' : 'is-complete'}`}>
-                            {running ? <Loader2 size={19} className="cp-spin" /> : <CheckCircle2 size={19} />}
+                            {running ? <Loader2 size={19} className="cp-spin" /> : outcome.completed ? <CheckCircle2 size={19} /> : <XCircle size={19} />}
                         </span>
                         <div><span className="cp-eyebrow">{running ? 'Active run' : 'Latest run'}</span><h2>{phase}</h2></div>
                         <span className="cp-pill">{profile}</span>
@@ -346,8 +349,8 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
             {result && (
                 <section className="cp-result-card">
                     <div className="cp-result-heading">
-                        <div><span className="cp-eyebrow">Outcome</span><h2>{result.stopped_reason === 'final' ? 'Goal completed' : 'Run finished with limits'}</h2></div>
-                        <span className={`cp-pill ${result.stopped_reason === 'final' ? 'is-success' : 'is-warning'}`}>{result.stopped_reason || 'done'}</span>
+                        <div><span className="cp-eyebrow">Outcome</span><h2>{outcome.label}</h2></div>
+                        <span className={`cp-pill ${outcome.tone}`}>{result.stopped_reason || 'done'}</span>
                     </div>
                     <div className="cp-result-metrics">
                         <span><Brain size={15} /><strong>{result.iterations ?? 0}</strong> steps</span>
@@ -362,7 +365,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                         <p>{result.answer || 'No answer was returned.'}</p>
                     </div>
 
-                    {result.plan && (
+                    {outcome.completed && result.plan && (
                         <div className="cp-inline-plan">
                             <span className={`cp-plan-risk ${result.plan.requires_approval ? 'is-warning' : 'is-success'}`}><ShieldCheck size={20} /></span>
                             <div>

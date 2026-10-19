@@ -55,7 +55,7 @@ try:
 except ImportError:  # pragma: no cover - dependency is declared, guard keeps imports fail-soft
     Draft202012Validator = None  # type: ignore[assignment]
 
-from openai_response_stream import completed_response
+from openai_response_stream import completed_response, response_output
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +235,7 @@ class LLMResponse:
 
     @property
     def is_final(self) -> bool:
-        return not self.tool_calls
+        return not self.tool_calls and bool((self.content or "").strip())
 
 
 @dataclass
@@ -732,31 +732,20 @@ class OpenAIResponsesBackend:
         else:
             resp = await self._client.responses.create(**kwargs)
         calls: List[ToolCall] = []
-        text_chunks: List[str] = []
-        for item in getattr(resp, "output", []) or []:
-            item_type = _get_value(item, "type", None)
-            if item_type == "function_call":
-                args_raw = _get_value(item, "arguments", "{}") or "{}"
-                try:
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    args = {"_raw": args_raw}
-                calls.append(ToolCall(
-                    id=str(_get_value(item, "call_id", None) or _get_value(item, "id", None) or uuid.uuid4()),
-                    name=str(_get_value(item, "name", "")),
-                    arguments=args or {},
-                ))
-            elif item_type == "message":
-                for block in _get_value(item, "content", []) or []:
-                    if _get_value(block, "type", None) in ("output_text", "text"):
-                        text_chunks.append(str(_get_value(block, "text", "") or ""))
+        content, function_items = response_output(resp, allow_tools=True)
+        for item in function_items:
+            args_raw = _get_value(item, "arguments", "{}") or "{}"
+            try:
+                args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                args = {"_raw": args_raw}
+            calls.append(ToolCall(
+                id=_get_value(item, "call_id"),
+                name=_get_value(item, "name"),
+                arguments=args or {},
+            ))
 
-        if not text_chunks:
-            output_text = getattr(resp, "output_text", "") or ""
-            if output_text:
-                text_chunks.append(output_text)
-
-        usage_obj = getattr(resp, "usage", None)
+        usage_obj = _get_value(resp, "usage", None)
         output_details = _get_value(usage_obj, "output_tokens_details", None)
         input_details = _get_value(usage_obj, "input_tokens_details", None)
         usage = _normalise_usage({
@@ -765,19 +754,19 @@ class OpenAIResponsesBackend:
             "cached_input_tokens": _get_value(input_details, "cached_tokens", 0),
             "reasoning_tokens": _get_value(output_details, "reasoning_tokens", 0),
         })
-        output_items = [_model_dump(item) for item in (getattr(resp, "output", []) or [])]
+        output_items = [_model_dump(item) for item in (_get_value(resp, "output", []) or [])]
         next_continuation: Dict[str, Any] = {"consumed_messages": len(messages)}
         if self.store:
-            next_continuation["previous_response_id"] = getattr(resp, "id", None)
+            next_continuation["previous_response_id"] = _get_value(resp, "id", None)
         else:
             next_continuation["history_items"] = input_items + output_items
         return LLMResponse(
-            content="\n".join(c for c in text_chunks if c).strip(),
-            tool_calls=[c for c in calls if c.name],
+            content=content,
+            tool_calls=calls,
             raw=resp,
             continuation=next_continuation,
             usage=usage,
-            stop_reason=getattr(resp, "status", None),
+            stop_reason=_get_value(resp, "status", None),
         )
 
 
@@ -1307,6 +1296,9 @@ class ReasoningHarness:
                     ),
                     timeout=min(effective_llm_timeout_seconds, remaining),
                 )
+                _merge_usage(usage, response.usage)
+                if not response.tool_calls and not (response.content or "").strip():
+                    raise RuntimeError("Model returned empty output without tool calls")
             except asyncio.TimeoutError:
                 logger.error("LLM call timed out at iteration %d", iteration)
                 return self._build_result(
@@ -1351,7 +1343,6 @@ class ReasoningHarness:
                 )
 
             continuation = response.continuation
-            _merge_usage(usage, response.usage)
             await self._emit({
                 "type": "thought",
                 "run_id": run_id,
