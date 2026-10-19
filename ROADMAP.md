@@ -1,6 +1,6 @@
 # 🗺️ AI Orchestrator - Product Roadmap
 
-**Current Version**: v0.13.11 (OAuth finalized stream recovery and effective generation roles)
+**Current Version**: v0.13.12 (Hot-loaded specialists, entity selection and persistent pause)
 
 This roadmap outlines the strategic direction for the AI Orchestrator. It focuses on evolving from a "text-based automation manager" to a fully multi-modal, voice-interactive home presence.
 
@@ -32,10 +32,12 @@ This roadmap outlines the strategic direction for the AI Orchestrator. It focuse
 4. **Real-provider evaluation CI** comparing model profiles on task success, safety, calls, tokens, latency, and cost.
 5. **Run trace export** using the existing run IDs/checkpoints with an OpenTelemetry-compatible sink.
 
-### 1. Zero-Downtime Agent Reloading
-- **Goal**: Add/Update agents without restarting the entire backend (Hot Reload).
-- **Feature**: Implement a mechanism for dynamic agent loading and unloading.
-- **Use Case**: Rapid iteration on agent logic without service interruption.
+### 1. Zero-Downtime Agent Reloading (completed v0.13.12)
+- [x] Factory saves hot-register a new specialist paused; edits replace only that specialist, and deletion cancels/drains its local work. Other agents and the backend keep running.
+- [x] Editable searchable entity selection grouped by HA domain, backed by real HA state inventory and application allowed/blocked domain policy.
+- [x] Persistent per-agent pause/resume, execution gates and stale-decision rejection. Existing configs without a pause flag preserve their enabled intent.
+- **Scope**: Legacy specialists still use the opt-in `enable_legacy_autonomous_loops` model. No migration into the authoritative kernel, durable specialist checkpoints, or replay of unfinished work. Installing the update still requires the add-on update/restart; subsequent factory changes do not.
+- **Details**: See [agent management](AGENT_MANAGEMENT.md) for cancellation semantics and offline acceptance checks.
 
 -   [x] **Chat Interface**: Floating dashboard assistant for natural language control. (v0.9.0)
 -   [x] **RAG Optimization**: Delta-based ingestion for instant startup. (v0.9.1)

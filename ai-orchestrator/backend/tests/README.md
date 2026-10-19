@@ -2,6 +2,21 @@
 
 Quick validation tests for Phase 1 core functionality.
 
+## Agent management regressions (0.13.12)
+
+`test_agent_management.py` exercises the real Factory router and shared specialist
+lifecycle with temporary YAML and inert agents, without HA or model requests.
+Coverage includes paused-by-default hot registration, repeated/concurrent resume,
+legacy-off errors, restart compatibility, edit/delete, rollback/disk errors,
+domain/blocked precedence, forged IDs, restricted historical removal, drain and
+stale decision invalidation. Run it in the isolated backend interpreter alongside
+the full suite. The same existing `/data` sandbox requirements below apply.
+
+Dashboard: `node --test tests/*.test.mjs` and `npm run build`. The selector model
+regressions cover grouping, friendly-name search, restricted additions and removal.
+[Agent management](../../../AGENT_MANAGEMENT.md) documents the actual browser
+fixture using the real API/lifecycle with a model-free loopback server.
+
 ## OAuth Responses and empty-result regression tests (0.13.11)
 
 From `ai-orchestrator/backend`, use an isolated Python environment (not the system or agent runtime):

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import inspect
@@ -357,6 +358,19 @@ class MCPServer:
         Returns:
             Tool execution result
         """
+        lifecycle = getattr(self, 'agent_lifecycle', None)
+        if lifecycle and (agent_id in lifecycle.agents or agent_id in lifecycle.generations):
+            generation = lifecycle.generations.get(agent_id, 0)
+            async with lifecycle.execution_locks.setdefault(agent_id, asyncio.Lock()):
+                error = await lifecycle.check_execution(agent_id, parameters, tool_name)
+                if generation != lifecycle.generations.get(agent_id, 0):
+                    error = 'Agent work crossed a pause/edit/delete boundary; discarded'
+                if error:
+                    return {'ok': False, 'executed': False, 'error_code': 'agent_inactive', 'error': error}
+                return await self._execute_tool(tool_name, parameters, agent_id, context)
+        return await self._execute_tool(tool_name, parameters, agent_id, context)
+
+    async def _execute_tool(self, tool_name, parameters, agent_id, context=None):
         if tool_name not in self.tools:
             return {"ok": False, "error": f"Unknown tool: {tool_name}", "error_code": "unknown_tool"}
 

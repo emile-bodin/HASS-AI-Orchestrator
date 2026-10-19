@@ -273,6 +273,8 @@ class AgentStatus(BaseModel):
     decision_interval: int
     instruction: Optional[str] = None
     entities: List[str] = []
+    paused: bool = False
+    legacy_enabled: bool = False
 
 
 class Decision(BaseModel):
@@ -568,73 +570,33 @@ async def lifespan(app: FastAPI):
     if _llm_env_map.get("LLM_PROVIDER"):
         print(f"✓ LLM provider: {_llm_env_map['LLM_PROVIDER']}")
     
-    # 5. Initialize Agents
-    # Helper to parse entity lists
-    def get_entities(env_var: str) -> List[str]:
-        raw = os.getenv(env_var, "")
-        return [e.strip() for e in raw.split(",") if e.strip()]
+    # Shared runtime lifecycle: startup, factory, edit, pause/resume, deletion.
+    from agent_lifecycle import AgentLifecycle
+    from factory_router import get_config_path
 
-    # 5. Initialize Agents (Phase 5: Dynamic Loading)
-    def get_agents_config_path():
-        # Search priority: /config/agents.yaml (Persistent) -> local agents.yaml
-        config_paths = ["/config/agents.yaml", "agents.yaml"]
-        # If /config exists, we are in an add-on and should prefer it for persistence
-        if os.path.exists("/config"):
-            return "/config/agents.yaml"
-        return next((p for p in config_paths if os.path.exists(p)), "agents.yaml")
+    def build_specialist(cfg):
+        entities = cfg.get('entities', [])
+        # Preserve legacy env fallback only when the field was absent, never for explicit [].
+        if 'entities' not in cfg:
+            entities = [e.strip() for e in os.getenv(f"{cfg['id'].upper()}_ENTITIES", '').split(',') if e.strip()]
+        return UniversalAgent(
+            agent_id=cfg['id'], name=cfg['name'], instruction=cfg['instruction'],
+            mcp_server=mcp_server, ha_client=lambda: ha_client, entities=entities,
+            rag_manager=rag_manager, model_name=cfg.get('model', os.getenv('DEFAULT_MODEL', 'gemma4:e4b')),
+            decision_interval=cfg.get('decision_interval', 120),
+            broadcast_func=broadcast_to_dashboard, knowledge=cfg.get('knowledge', ''))
 
-    def load_agents_from_config():
-        config_path = get_agents_config_path()
-        
-        if not os.path.exists(config_path) and config_path == "agents.yaml":
-            print(f"⚠️ No agent config found, skipping dynamic agents.")
-            return
-        
-        print(f"🔍 Loading agents from {config_path}...")
+    async def specialist_states():
+        if not ha_client or not ha_client.connected:
+            raise ValueError('Home Assistant entity inventory unavailable; reconnect before saving/resuming')
+        return await ha_client.get_states()
 
-        try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-                
-            for agent_cfg in config.get('agents', []):
-                agent_id = agent_cfg['id']
-                
-                # Check if entities are defined in yaml, otherwise fallback to env vars (backwards compat)
-                entities = agent_cfg.get('entities', [])
-                if not entities:
-                    # Legacy fallback
-                    env_var = f"{agent_id.upper()}_ENTITIES"
-                    raw = os.getenv(env_var, "")
-                    entities = [e.strip() for e in raw.split(",") if e.strip()]
-                
-                # Create Universal Agent
-                agents[agent_id] = UniversalAgent(
-                    agent_id=agent_id,
-                    name=agent_cfg['name'],
-                    instruction=agent_cfg['instruction'],
-                    mcp_server=mcp_server,
-                    ha_client=lambda: ha_client,
-                    entities=entities,
-                    rag_manager=rag_manager,
-                    model_name=agent_cfg.get('model', os.getenv("DEFAULT_MODEL", "gemma4:e4b")),
-                    decision_interval=agent_cfg.get('decision_interval', 120),
-                    broadcast_func=broadcast_to_dashboard,
-                    knowledge=agent_cfg.get('knowledge', "")
-                )
-                print(f"  ✓ Loaded agent: {agent_cfg['name']} ({agent_id})")
-                
-        except Exception as e:
-            print(f"❌ Failed to load agents from config: {e}")
+    agent_lifecycle = AgentLifecycle(agents, get_config_path(), build_specialist,
+                                     specialist_states, enable_legacy_autonomous_opt, spawn_background)
+    app.state.agent_lifecycle = agent_lifecycle
+    mcp_server.agent_lifecycle = agent_lifecycle
+    agent_lifecycle.load()
 
-    # Load agents
-    print("Detecting agent configuration...")
-    load_agents_from_config()
-    
-    # If config was empty/missing, we could optionally load default hardcoded agents here
-    # but for Phase 5 we assume yaml drives the system.
-    
-    print(f"✓ Initialized {len(agents)} agents: {', '.join(agents.keys())}")
-    
     # 6. Initialize Orchestrator
     # Use the configured Gemma model for the orchestrator too,
     # since the user might only have one model available on the remote Ollama.
@@ -652,15 +614,15 @@ async def lifespan(app: FastAPI):
             gemini_model_name_opt or os.getenv("GEMINI_MODEL_NAME", DEFAULT_GEMINI_DASHBOARD_MODEL)
         )
     )
+    agent_lifecycle.orchestrator = orchestrator
     print(f"✓ Orchestrator initialized with model {orchestrator.model_name}")
     
     # 7. Legacy cadence loops are opt-in. The modern path is event/goal driven
     # through the deterministic deep-reasoning kernel and proactive triggers.
     if enable_legacy_autonomous_opt:
         spawn_background(orchestrator.run_planning_loop(), "legacy-orchestrator")
-        for agent_id, agent in agents.items():
-            if hasattr(agent, "run_decision_loop") and getattr(agent, "decision_interval", 0) > 0:
-                spawn_background(agent.run_decision_loop(), f"legacy-agent-{agent_id}")
+        for agent_id in agents:
+            agent_lifecycle.start(agent_id)
         print("⚠️ Legacy autonomous agent loops enabled")
     else:
         print("✓ Legacy autonomous loops disabled; deterministic kernel is authoritative")
@@ -1500,7 +1462,9 @@ async def get_agents():
             last_decision=last_decision,
             decision_interval=getattr(agent, "decision_interval", 0),
             instruction=getattr(agent, "instruction", ""),
-            entities=getattr(agent, "entities", [])
+            entities=getattr(agent, "entities", []),
+            paused=getattr(agent, "paused", False),
+            legacy_enabled=app.state.agent_lifecycle.legacy_enabled
         ))
     
     return status_list

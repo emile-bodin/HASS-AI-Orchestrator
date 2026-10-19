@@ -247,6 +247,17 @@ Hermes is already a capable operational monitor/controller and has stronger mess
 8. **Real-provider CI evaluations.** Run the scenario set against configured model profiles, compare success, calls, tokens, latency, and cost, and block model/prompt upgrades on regression.
 9. **OpenTelemetry-compatible run export.** The new run IDs, usage, tool metadata, and checkpoints provide the substrate for traces without coupling core behavior to a hosted observability vendor.
 
+## Specialist management follow-up (0.13.12)
+
+The retained Factory now hot-loads explicitly selected specialists, initially paused,
+with persisted per-agent pause/resume and server-side entity/domain checks. This does
+not migrate specialists into the modern kernel: their cadence remains opt-in through
+`enable_legacy_autonomous_loops`. The kernel guarantees above describe modern goals,
+chat, prompts and triggers, not the legacy specialist decision path. A specialist
+pause drains/cancels local work but cannot undo a service request already accepted by
+HA. No half-finished specialist work is automatically replayed. See
+[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md).
+
 ## Deliberately not implemented in this pass
 
 - Mid-reasoning process-restart resume. Plans are durable and safe; active model conversations are still per-process. Adding this requires an event log/checkpointer and provider-specific continuation persistence.

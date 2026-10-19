@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, Trash2, Edit2, Check, ExternalLink, Activity, Save } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
+import { EntitySelector } from './EntitySelector';
 
-const AgentDetails = ({ agent, onClose, onDelete }) => {
+const AgentDetails = ({ agent, onClose, onDelete, onChanged }) => {
     const [activeTab, setActiveTab] = useState('overview');
     const [decisions, setDecisions] = useState([]);
     const [isEditing, setIsEditing] = useState(false);
@@ -10,6 +11,21 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
     const [name, setName] = useState(agent?.name || "");
     const [interval, setIntervalValue] = useState(agent?.decision_interval || 120);
     const [loading, setLoading] = useState(false);
+    const [entities, setEntities] = useState(agent?.entities || []);
+    const [paused, setPaused] = useState(!!agent?.paused);
+    const [lifecycleError, setLifecycleError] = useState('');
+    const changeActivation = async () => {
+        setLoading(true);
+        setLifecycleError('');
+        try {
+            const response = await fetch(`api/factory/agents/${agent.agent_id}/${paused ? 'resume' : 'pause'}`, { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Activation change failed');
+            setPaused(data.paused);
+            onChanged?.();
+        } catch (error) { setLifecycleError(error.message); }
+        finally { setLoading(false); }
+    };
     const closeRef = useRef(null);
     const dialogRef = useDialogFocus(onClose, closeRef, !!agent);
 
@@ -18,6 +34,8 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
             fetchDecisions();
             setInstruction(agent.instruction || ""); // Reset on agent change
             setName(agent.name || "");
+            setEntities(agent.entities || []);
+            setPaused(!!agent.paused);
             // Ensure strictly integer
             setIntervalValue(agent.decision_interval ? parseInt(agent.decision_interval) : 120);
         }
@@ -42,18 +60,18 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
                 body: JSON.stringify({
                     instruction: instruction,
                     name: name,
-                    decision_interval: parseInt(interval)
+                    decision_interval: parseInt(interval),
+                    entities
                 })
             });
 
             if (res.ok) {
                 setIsEditing(false);
-                // Optional: Trigger full refresh if name changed because it affects grid
-                if (name !== agent.name) {
-                    window.location.reload();
-                }
+                onChanged?.();
+                onClose();
             } else {
-                alert("Failed to update agent");
+                const data = await res.json();
+                setLifecycleError(data.detail || "Failed to update agent");
             }
         } catch (e) {
             console.error(e);
@@ -79,8 +97,7 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
             if (res.ok) {
                 onDelete(agent.agent_id);
                 onClose();
-                // Optional: Force reload if parent doesn't handle list update
-                window.location.reload();
+                onChanged?.();
             } else {
                 alert("Failed to delete agent. Server returned error.");
             }
@@ -100,6 +117,11 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
 
             <div ref={dialogRef} className="absolute inset-y-0 right-0 w-full max-w-2xl bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transform transition-transform duration-300" role="dialog" aria-modal="true" aria-label={`${agent.name} details`} tabIndex={-1}>
 
+                <div className="p-4 border-b border-slate-700">
+                    <button onClick={changeActivation} disabled={loading} className="cp-button">{paused ? 'Resume agent' : 'Pause agent'}</button>
+                    <span className="ml-3 text-sm">{paused ? 'Paused' : agent.legacy_enabled ? 'Active' : 'Ready · legacy loops disabled'}</span>
+                    {lifecycleError && <p role="alert" className="text-red-300">{lifecycleError}</p>}
+                </div>
                 {/* Header */}
                 <div className="p-6 border-b border-slate-700 flex justify-between items-start bg-slate-800/50">
                     <div>
@@ -228,14 +250,20 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
                                     ) : (
                                         <div className="flex gap-2">
                                             <button
-                                                onClick={() => setIsEditing(false)}
+                                                onClick={() => {
+                                                    setEntities(agent.entities || []);
+                                                    setInstruction(agent.instruction || '');
+                                                    setName(agent.name || '');
+                                                    setIntervalValue(agent.decision_interval || 120);
+                                                    setIsEditing(false);
+                                                }}
                                                 className="text-xs text-slate-400 hover:text-white"
                                             >
                                                 Cancel
                                             </button>
                                             <button
                                                 onClick={handleUpdate}
-                                                disabled={loading}
+                                                disabled={loading || !entities.length}
                                                 className="text-xs flex items-center gap-1 text-green-400 hover:text-green-300 bg-green-400/10 px-2 py-1 rounded transition-colors"
                                             >
                                                 <Save size={12} /> {loading ? 'Saving...' : 'Save'}
@@ -246,6 +274,7 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
 
                                 {isEditing ? (
                                     <div className="space-y-4">
+                                        <EntitySelector value={entities} onChange={setEntities} />
                                         <textarea
                                             value={instruction}
                                             onChange={(e) => setInstruction(e.target.value)}
@@ -284,10 +313,6 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
                                 <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                                     <ExternalLink size={18} className="text-purple-400" /> Assigned Entities
                                 </h3>
-                                {/* We don't have the entity list from GET /agents yet, only from Config or by inference. 
-                             Backend update needed to return entities in AgentStatus if we want to show them here accurately.
-                             For now, rely on what might be passed or show specific fallback.
-                          */}
                                 {agent.entities && agent.entities.length > 0 ? (
                                     <div className="flex flex-wrap gap-2">
                                         {agent.entities.map((entityId) => (
@@ -299,7 +324,7 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
                                     </div>
                                 ) : (
                                     <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-700/50 text-slate-400 text-sm italic text-center">
-                                        No specific entities assigned. (Agent will use Auto-Discovery)
+                                        No explicit entities assigned. Select allowed entities before autonomous execution.
                                     </div>
                                 )}
                             </div>
@@ -335,7 +360,7 @@ const AgentDetails = ({ agent, onClose, onDelete }) => {
 
                     {activeTab === 'json' && (
                         <pre id="agent-panel" className="text-xs font-mono text-slate-400 bg-black/30 p-4 rounded-lg overflow-x-auto" role="tabpanel" aria-labelledby="agent-tab-json">
-                            {JSON.stringify(agent, null, 2)}
+                            {JSON.stringify({ ...agent, paused }, null, 2)}
                         </pre>
                     )}
 

@@ -1,6 +1,6 @@
 {
     "name": "Home Assistant AI Control Plane",
-    "version": "0.13.11",
+    "version": "0.13.12",
     "slug": "ai-orchestrator",
     "description": "A guarded AI control plane for Home Assistant with local and cloud models, multi-agent orchestration, RAG, and policy-enforced actions.",
     "url": "https://github.com/emile-bodin/HASS-AI-Orchestrator",

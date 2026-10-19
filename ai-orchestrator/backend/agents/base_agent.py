@@ -61,6 +61,7 @@ class BaseAgent(ABC):
         self.decision_interval = decision_interval
         self.broadcast_func = broadcast_func
         self.status = "initializing"
+        self.paused = False
         
         # Load skills from SKILLS.md
         self.skills = self.load_skills()
@@ -242,10 +243,14 @@ If no action is needed, return an empty actions array.
         Returns:
             List of execution results
         """
+        if self.paused:
+            return []
         actions = decision.get("actions", [])
         results = []
         
         for action in actions:
+            if self.paused:
+                break
             tool_name = action["tool"]
             parameters = action["parameters"]
             
@@ -329,13 +334,19 @@ If no action is needed, return an empty actions array.
 
     async def run_decision_loop(self):
         """Main decision loop that runs continuously"""
+        if self.paused:
+            self.status = "paused"
+            return
         self.status = "idle"
         # Delay start slightly to allow system to settle
         await asyncio.sleep(5)
         print(f"✓ {self.name} decision loop started (interval: {self.decision_interval}s)")
         
-        while True:
+        while not self.paused:
             try:
+                lifecycle = getattr(self.mcp_server, 'agent_lifecycle', None)
+                if lifecycle:
+                    await lifecycle.validate_entities(self.entities)
                 self.status = "deciding"
                 await self._broadcast_status("deciding")
                 

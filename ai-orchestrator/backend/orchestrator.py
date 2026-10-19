@@ -411,13 +411,17 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         """Distribute tasks to specialist agents"""
         for task in state["tasks"]:
             agent = self.agents.get(task["agent_id"])
-            if agent:
+            if agent and not getattr(agent, "paused", False):
                 # Store in task ledger
                 self.task_ledger.append(task)
                 
                 # Send task to agent (agent will process asynchronously)
                 if hasattr(agent, 'receive_task'):
-                    asyncio.create_task(agent.receive_task(task))
+                    lifecycle = getattr(self.mcp_server, 'agent_lifecycle', None)
+                    if lifecycle:
+                        lifecycle.dispatch(task['agent_id'], task)
+                    else:
+                        asyncio.create_task(agent.receive_task(task))
                     logger.debug(f"Distributed task {task['task_id']} to {task['agent_id']}")
             else:
                 logger.warning(f"Agent {task['agent_id']} not found")
@@ -437,8 +441,13 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         # Collect from progress ledger (agents update this)
         decisions = []
         for agent_id, progress in self.progress_ledger.items():
-            if progress.get("decision"):
-                decisions.append(progress["decision"])
+            agent = self.agents.get(agent_id)
+            if agent and not getattr(agent, 'paused', False) and progress.get("decision"):
+                decision = dict(progress['decision'])
+                decision['agent_id'] = agent_id
+                lifecycle = getattr(self.mcp_server, 'agent_lifecycle', None)
+                decision['_generation'] = lifecycle.generations.get(agent_id, 0) if lifecycle else 0
+                decisions.append(decision)
         
         state["decisions"] = decisions
         logger.info(f"Aggregated {len(decisions)} decisions")
@@ -479,7 +488,12 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         requires_approval = []
         
         for decision in state["decisions"]:
-            for action in decision["actions"]:
+            source = decision.get('agent_id')
+            agent = self.agents.get(source)
+            if not agent or getattr(agent, 'paused', False):
+                continue
+            for original in decision["actions"]:
+                action = {**original, '_source_agent': source, '_generation': decision.get('_generation', 0)}
                 # Check impact level
                 if decision.get("impact_level") in ["high", "critical"]:
                     requires_approval.append(action)
@@ -502,11 +516,17 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         results = []
         
         for action in state["approved_actions"]:
+            source = action.get('_source_agent')
+            agent = self.agents.get(source)
+            lifecycle = getattr(self.mcp_server, 'agent_lifecycle', None)
+            if (not agent or getattr(agent, 'paused', False) or
+                    (lifecycle and action.get('_generation') != lifecycle.generations.get(source, 0))):
+                continue
             try:
                 result = await self.mcp_server.execute_tool(
                     tool_name=action["tool"],
                     parameters=action["parameters"],
-                    agent_id="orchestrator"
+                    agent_id=source
                 )
                 results.append(result)
                 logger.info(f"Executed {action['tool']}: {result}")

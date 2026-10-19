@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.12] - 2026-10-19
+### Added — Agent management without backend restart
+- Searchable, editable entity selector grouped by HA domain for Factory deployment and agent edits; friendly names, selected counts, remove support, and restricted/missing historical entries.
+- Server validates entity existence and the application's allowed/blocked domain policy (blocked wins). Empty selection is not dynamic/all. Instruction edits preserve explicit selections.
+- Shared startup/factory lifecycle hot-loads new agents paused; edits affect only the changed specialist. Pause/resume persists in agents.yaml, deletion drains local work, and repeated resume does not duplicate cadence tasks.
+- Guard legacy specialist dispatch and MCP execution, discard stale decisions, and cancel unfinished work rather than replaying it. Existing configs without paused preserve their prior activation intent; global legacy loops remain opt-in and resume never enables them.
+- Atomic YAML replacement and rollback on runtime registration failure. Existing dry-run and approval checks stay in place; this is not a kernel migration or a global tool sandbox.
+
+### Verification
+- Isolated full backend suite: 432 passed, 4 opt-in live MCP tests skipped; 22 agent-management regressions. Node: 11 passed. Vite production build, bash syntax and git whitespace checks passed.
+- Real browser exercised only the local HA-free/model-free fixture: grouped search, blocked/empty selections, paused deployment, resume/pause, persisted edits, deletion, and 390 px document-width checks. No live HA mutations or provider inference are claimed.
+
+### Operating scope
+- Install this update normally (add-on update/restart). Subsequent Factory saves/edits require no backend restart. Pause cannot retract HA requests already accepted remotely. See AGENT_MANAGEMENT.md for acceptance steps and exact limits.
+
 ## [0.13.11] - 2026-10-19
 ### Fixed
 - Recover only finalized streamed output items when OAuth completion has empty/null output; preserve populated snapshots, reasoning, tools, usage, and continuation. Incomplete/failed/missing completion and invalid tool arguments still fail safely.

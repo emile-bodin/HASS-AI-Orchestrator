@@ -1,9 +1,9 @@
 # Home Assistant AI Control Plane
 
-[![Version](https://img.shields.io/badge/version-v0.13.11-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.11)
+[![Version](https://img.shields.io/badge/version-v0.13.12-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.12)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5)
 ![Agent Kernel](https://img.shields.io/badge/agent%20kernel-deterministic-8B5CF6)
-![Tests](https://img.shields.io/badge/backend%20tests-286%20passing-22C55E)
+![Tests](https://img.shields.io/badge/backend%20tests-432%20passing-22C55E)
 
 > **Side project notice:** This is an independent side project based on the original AI Orchestrator project by Graham Hosking. It keeps the original project's core safety and orchestration ideas while developing its own Home Assistant integration, provider support, OAuth work, and deployment path. It is not the original upstream project.
 
@@ -34,7 +34,16 @@ The long-term goal is not another voice-controlled remote and not a chatbot bolt
 - **Today:** run local `gemma4:e4b` in Rapid, Balanced, or Deep mode; investigate live HA state; create exact plans; approve and replay actions; run proactive goals; recall prior episodes; and operate everything from a human-centred dashboard.
 - **Safety posture:** dry-run by default, direct execution disabled, sensitive services gated, generated dashboards sandboxed, and mutation replay checkpointed.
 - **Next:** native Assist/voice integration, post-action state verification, filtered real-time events, and a temporal model of the home.
-- **Latest test release:** [v0.13.11 — OAuth finalized stream recovery and effective generation roles](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.11).
+- **Latest test release:** [v0.13.12 — Hot-loaded, explicitly scoped, pausable specialists](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.12).
+
+## Specialist agent management
+
+Version 0.13.12 adds a domain-grouped, searchable entity picker for agent creation
+and editing, immediate paused deployment, hot saves, and persistent per-agent
+pause/resume. Factory changes need no backend restart after installing the update.
+Specialists still use the opt-in legacy cadence model; this is not a kernel
+migration. Read [agent management and safe local acceptance](AGENT_MANAGEMENT.md)
+for entity policy, cancellation limits and the model-free browser fixture.
 
 ## Live screenshots
 
