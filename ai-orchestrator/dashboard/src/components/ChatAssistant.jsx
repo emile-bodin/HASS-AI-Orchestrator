@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getRunOutcome } from './runOutcome';
 import {
     ArrowRight,
     Brain,
@@ -17,7 +18,7 @@ const QUICK_GOALS = [
     'Prepare a safe night routine for review',
 ];
 
-export const ChatAssistant = ({ onOpenPlans }) => {
+export const ChatAssistant = ({ onOpenPlans, plans = [], onRunComplete }) => {
     const [open, setOpen] = useState(false);
     const [messages, setMessages] = useState([
         { role: 'assistant', content: 'Ask about the home or request an outcome. Guarded tools and approval policy apply here too.' },
@@ -53,11 +54,13 @@ export const ChatAssistant = ({ onOpenPlans }) => {
             const data = await response.json();
             setMessages(previous => [...previous, {
                 role: 'assistant',
-                content: data.answer || 'The run completed without a written answer.',
+                content: data.answer || 'No answer was returned; reasoning failed.',
+                result: data,
                 plan: data.plan,
                 profile: data.profile,
                 duration: data.duration_ms,
             }]);
+            onRunComplete?.();
         } catch (error) {
             setMessages(previous => [...previous, { role: 'error', content: `The goal could not run: ${error.message}` }]);
         } finally {
@@ -86,14 +89,12 @@ export const ChatAssistant = ({ onOpenPlans }) => {
                         {messages.map((message, index) => (
                             <div className={`cp-chat-message is-${message.role}`} key={index}>
                                 <p>{message.content}</p>
-                                {message.plan?.requires_approval && message.plan.status === 'pending' && (
+                                {(plans.find(p => p.id === message.plan?.id) || message.plan)?.status === 'pending' && (
                                     <button className="cp-chat-plan" type="button" onClick={onOpenPlans}>
                                         <ShieldCheck size={14} /> Exact plan needs review <ArrowRight size={13} />
                                     </button>
                                 )}
-                                {message.plan && !message.plan.requires_approval && (
-                                    <span className="cp-chat-meta"><ShieldCheck size={12} /> Routine plan handled by policy · {message.profile}</span>
-                                )}
+                                {message.result && <span className="cp-chat-meta"><ShieldCheck size={12} /> {getRunOutcome({ ...message.result, plan: plans.find(p => p.id === message.plan?.id) || message.plan }).label} · {message.profile}</span>}
                             </div>
                         ))}
                         {loading && <div className="cp-chat-message is-assistant is-loading"><Loader2 size={15} className="cp-spin" /> Running guarded {profile} goal…</div>}

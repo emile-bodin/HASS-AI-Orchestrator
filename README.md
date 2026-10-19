@@ -1,9 +1,9 @@
 # Home Assistant AI Control Plane
 
-[![Version](https://img.shields.io/badge/version-v0.13.13-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.13)
+[![Version](https://img.shields.io/badge/version-v0.13.14-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.14)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5)
 ![Agent Kernel](https://img.shields.io/badge/agent%20kernel-deterministic-8B5CF6)
-![Tests](https://img.shields.io/badge/backend%20tests-432%20passing-22C55E)
+![Tests](https://img.shields.io/badge/backend%20tests-482%20passing-22C55E)
 
 > **Side project notice:** This is an independent side project based on the original AI Orchestrator project by Graham Hosking. It keeps the original project's core safety and orchestration ideas while developing its own Home Assistant integration, provider support, OAuth work, and deployment path. It is not the original upstream project.
 
@@ -34,7 +34,16 @@ The long-term goal is not another voice-controlled remote and not a chatbot bolt
 - **Today:** run local `gemma4:e4b` in Rapid, Balanced, or Deep mode; investigate live HA state; create exact plans; approve and replay actions; run proactive goals; recall prior episodes; and operate everything from a human-centred dashboard.
 - **Safety posture:** dry-run by default, direct execution disabled, sensitive services gated, generated dashboards sandboxed, and mutation replay checkpointed.
 - **Next:** native Assist/voice integration, post-action state verification, filtered real-time events, and a temporal model of the home.
-- **Latest test release:** [v0.13.13 — Backward-compatible Ollama configuration](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.13).
+- **Latest test release:** [v0.13.14 — Exact approval and truthful execution outcomes](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.14).
+
+## Plan, approve, execute
+
+Version 0.13.14 honors saved trigger modes, makes pending plans visible for review,
+and executes human-approved legacy actions through the safety-checked local tools.
+Whole-plan approval replays exact recorded arguments without another model call;
+one high-impact step holds the whole Auto-safe plan. Simulation is distinct from
+execution, and tool acceptance is not physical state verification. See
+[approval guarantees and limitations](APPROVAL_FLOW.md).
 
 ## Specialist agent management
 

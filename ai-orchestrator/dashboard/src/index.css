@@ -1485,7 +1485,7 @@ code,
 
 .cp-inline-plan {
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   margin-top: 13px;
@@ -1493,6 +1493,26 @@ code,
   background: var(--cp-surface-soft);
   border: 1px solid var(--cp-border);
   border-radius: 10px;
+}
+
+.cp-inline-plan > *,
+.cp-result-heading > div,
+.cp-active-run-heading > div,
+.cp-intent-list li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cp-inline-plan > details {
+  grid-column: 1 / -1;
+}
+
+.cp-inline-plan pre,
+.cp-plan-details pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .cp-inline-plan > div > strong {
@@ -2787,7 +2807,7 @@ iframe {
   }
 
   .cp-inline-plan {
-    grid-template-columns: 42px 1fr;
+    grid-template-columns: 42px minmax(0, 1fr);
   }
 
   .cp-inline-plan > .cp-pill {
@@ -2802,7 +2822,10 @@ iframe {
   }
 
   .cp-plan-summary > .cp-pill {
-    display: none;
+    display: inline-flex;
+    grid-column: 2;
+    justify-self: start;
+    white-space: normal;
   }
 
   .cp-plan-risk {

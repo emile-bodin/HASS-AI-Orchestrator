@@ -1,6 +1,6 @@
 # 🗺️ AI Orchestrator - Product Roadmap
 
-**Current Version**: v0.13.13 (Backward-compatible Ollama add-on options)
+**Current Version**: v0.13.14 (Exact approval replay and truthful execution outcomes)
 
 This roadmap outlines the strategic direction for the AI Orchestrator. It focuses on evolving from a "text-based automation manager" to a fully multi-modal, voice-interactive home presence.
 
@@ -15,6 +15,12 @@ This roadmap outlines the strategic direction for the AI Orchestrator. It focuse
 -   [x] **Durable Plans**: Atomic execution claims, exact replay, trusted approval context, and per-step checkpoints.
 -   [x] **Frontier Provider Semantics**: GPT-5.6 Responses and Claude Opus 4.8 adaptive/strict tool support.
 -   [x] **Executable Evaluations**: Model-free safety contracts and a provider-neutral home scenario dataset.
+
+### 0.13.14 approval flow hardening
+
+- [x] Saved trigger Plan only mode, exact human approval replay, atomic claims and fail-closed restart behavior.
+- [x] Separate pending, failed/partial, simulated and accepted-tool outcomes; legacy actions remain separately labeled.
+- [ ] Physical postcondition verification and automatic stale-state replanning (not provided by approval replay).
 
 ### 0.13 human control layer completed
 

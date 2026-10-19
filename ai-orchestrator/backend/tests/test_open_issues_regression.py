@@ -52,8 +52,8 @@ def test_issue_2_auto_pulls_missing_embedding_model(tmp_path, monkeypatch):
         return {"embedding": [0.1, 0.2, 0.3]}
 
     fake_pull = MagicMock()
-    monkeypatch.setattr(rag_manager.ollama, "embeddings", fake_embeddings)
-    monkeypatch.setattr(rag_manager.ollama, "pull", fake_pull)
+    monkeypatch.setattr(rm.ollama_client, "embeddings", fake_embeddings)
+    monkeypatch.setattr(rm.ollama_client, "pull", fake_pull)
 
     out = rm._generate_embedding("hello")
     assert out == [0.1, 0.2, 0.3]
@@ -73,8 +73,8 @@ def test_issue_2_pull_only_attempted_once(tmp_path, monkeypatch):
         raise RuntimeError('model "nomic-embed-text" not found, try pulling it first')
 
     fake_pull = MagicMock(side_effect=RuntimeError("ollama unreachable"))
-    monkeypatch.setattr(rag_manager.ollama, "embeddings", always_missing)
-    monkeypatch.setattr(rag_manager.ollama, "pull", fake_pull)
+    monkeypatch.setattr(rm.ollama_client, "embeddings", always_missing)
+    monkeypatch.setattr(rm.ollama_client, "pull", fake_pull)
 
     with pytest.raises(RuntimeError):
         rm._generate_embedding("a")
