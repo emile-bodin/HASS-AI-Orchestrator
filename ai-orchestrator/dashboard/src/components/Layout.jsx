@@ -35,7 +35,7 @@ export function Layout({
     onViewChange,
     connected,
     pendingCount = 0,
-    version = 'v0.13.7',
+    version = 'v0.13.8',
 }) {
     const [showSettings, setShowSettings] = useState(false);
     const [config, setConfig] = useState(null);

@@ -1,6 +1,6 @@
 # Home Assistant AI Control Plane
 
-[![Version](https://img.shields.io/badge/version-v0.13.7-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.7)
+[![Version](https://img.shields.io/badge/version-v0.13.8-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.8)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5)
 ![Agent Kernel](https://img.shields.io/badge/agent%20kernel-deterministic-8B5CF6)
 ![Tests](https://img.shields.io/badge/backend%20tests-286%20passing-22C55E)
@@ -34,7 +34,7 @@ The long-term goal is not another voice-controlled remote and not a chatbot bolt
 - **Today:** run local `gemma4:e4b` in Rapid, Balanced, or Deep mode; investigate live HA state; create exact plans; approve and replay actions; run proactive goals; recall prior episodes; and operate everything from a human-centred dashboard.
 - **Safety posture:** dry-run by default, direct execution disabled, sensitive services gated, generated dashboards sandboxed, and mutation replay checkpointed.
 - **Next:** native Assist/voice integration, post-action state verification, filtered real-time events, and a temporal model of the home.
-- **Latest test release:** [v0.13.7 — OAuth callback and Ollama image fixes](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.7).
+- **Latest test release:** [v0.13.8 — OAuth callback and Ollama image fixes](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.8).
 
 ## Live screenshots
 
