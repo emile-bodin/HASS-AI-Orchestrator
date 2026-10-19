@@ -9,25 +9,42 @@ import pytest
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
-from openai_oauth import OpenAIOAuthStore  # noqa: E402
+from openai_oauth import OpenAIOAuthStore, parse_callback_url  # noqa: E402
+
+
+def test_authorization_url_defaults_to_openai_loopback_callback(tmp_path):
+    store = OpenAIOAuthStore(tmp_path / "oauth.json")
+    result = store.begin_authorization("")
+    query = parse_qs(urlparse(result["authorization_url"]).query)
+    assert query["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
 
 
 def test_authorization_url_contains_pkce_state_and_chatgpt_plan_scopes(tmp_path):
     store = OpenAIOAuthStore(tmp_path / "oauth.json")
-    result = store.begin_authorization("https://ha.example/api/openai/oauth/callback")
+    result = store.begin_authorization("http://127.0.0.1:1455/auth/callback")
 
     query = parse_qs(urlparse(result["authorization_url"]).query)
     assert query["client_id"] == ["dynamic_agent_client"]
-    assert query["redirect_uri"] == ["https://ha.example/api/openai/oauth/callback"]
+    assert query["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
     assert query["code_challenge_method"] == ["S256"]
     assert "chatgpt.tokens.use.direct" in query["scope"][0].split()
     assert result["state"]
     assert result["expires_at"] > 0
 
 
+def test_parse_callback_url_extracts_code_state_and_issued_client():
+    result = parse_callback_url("http://127.0.0.1:1455/auth/callback?code=abc&state=xyz&client_id=oaiapp_123")
+    assert result == {"code": "abc", "state": "xyz", "client_id": "oaiapp_123"}
+
+
+def test_parse_callback_url_rejects_provider_error():
+    with pytest.raises(ValueError, match="access_denied"):
+        parse_callback_url("http://127.0.0.1:1455/auth/callback?error=access_denied")
+
+
 def test_callback_rejects_state_mismatch(tmp_path):
     store = OpenAIOAuthStore(tmp_path / "oauth.json")
-    store.begin_authorization("https://ha.example/callback")
+    store.begin_authorization("http://127.0.0.1:1455/auth/callback")
 
     with pytest.raises(ValueError, match="state"):
         asyncio.run(store.complete_callback("code", "wrong-state", "issued-client"))
@@ -35,7 +52,7 @@ def test_callback_rejects_state_mismatch(tmp_path):
 
 def test_access_token_is_persisted_without_leaking_from_status(tmp_path, monkeypatch):
     store = OpenAIOAuthStore(tmp_path / "oauth.json")
-    pending = store.begin_authorization("https://ha.example/callback")
+    pending = store.begin_authorization("http://127.0.0.1:1455/auth/callback")
 
     async def fake_exchange(*args, **kwargs):
         return {

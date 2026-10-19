@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
@@ -25,7 +25,22 @@ TOKEN_ENDPOINT = "https://auth.openai.com/api/accounts/oauth/token"
 RESOURCE = "https://api.openai.com/v1"
 REQUIRED_SCOPE = "chatgpt.tokens.use.direct"
 DEFAULT_SCOPE = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
+DEFAULT_LOOPBACK_REDIRECT_URI = "http://127.0.0.1:1455/auth/callback"
 
+
+def parse_callback_url(callback_url: str) -> Dict[str, str]:
+    parsed = urlparse((callback_url or "").strip())
+    query = parse_qs(parsed.query)
+    if query.get("error"):
+        raise ValueError(str(query["error"][0]))
+    result = {
+        "code": str(query.get("code", [""])[0]),
+        "state": str(query.get("state", [""])[0]),
+        "client_id": str(query.get("client_id", [""])[0]),
+    }
+    if not result["code"] or not result["state"]:
+        raise ValueError("callback URL must contain code and state")
+    return result
 
 def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
@@ -76,10 +91,14 @@ class OpenAIOAuthStore:
             self._write(self._data)
         return host_id
 
-    def begin_authorization(self, redirect_uri: str, agent_name: str = "HASS-AI-Orchestrator") -> Dict[str, Any]:
-        redirect_uri = redirect_uri.strip()
-        if not redirect_uri:
-            raise ValueError("openai OAuth redirect URI is required")
+    def begin_authorization(self, redirect_uri: str = "", agent_name: str = "HASS-AI-Orchestrator") -> Dict[str, Any]:
+        redirect_uri = (redirect_uri or DEFAULT_LOOPBACK_REDIRECT_URI).strip()
+        parsed_redirect = urlparse(redirect_uri)
+        if parsed_redirect.scheme != "http" or parsed_redirect.hostname != "127.0.0.1":
+            raise ValueError(
+                "OpenAI Sign in with ChatGPT requires an HTTP 127.0.0.1 loopback redirect; "
+                "use manual callback paste mode instead of a public HTTPS URL"
+            )
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
         verifier = _b64url(secrets.token_bytes(48))
