@@ -14,6 +14,7 @@ import secrets
 import stat
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -85,8 +86,8 @@ class OpenAIOAuthStore:
 
     def _host_id(self) -> str:
         host_id = str(self._data.get("ext_agent_host_id") or "")
-        if not host_id:
-            host_id = str(secrets.token_urlsafe(24))
+        if not host_id.startswith(("urn:uuid:", "urn:ietf:params:oauth:jwk-thumbprint:")):
+            host_id = f"urn:uuid:{uuid.uuid4()}"
             self._data["ext_agent_host_id"] = host_id
             self._write(self._data)
         return host_id

@@ -6,6 +6,7 @@
 - Bumped the Home Assistant add-on version so the add-on store can detect and offer the update from `0.13.6`.
 - Added the manual ChatGPT OAuth callback-paste flow for installations where the browser and Home Assistant run on different hosts.
 - Added the fail-fast Ollama image installation check and the required `zstd` extractor dependency.
+- Corrected the OAuth host identifier to the OpenAI-required `urn:uuid:` format; previous links could be rejected as invalid authorize requests.
 
 ### Verification
 - Focused OAuth and image-install contract suite: 9 passing tests.
