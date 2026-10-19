@@ -1,6 +1,6 @@
 # 🗺️ AI Orchestrator - Product Roadmap
 
-**Current Version**: v0.13.10 (Non-empty agent outcomes and OAuth model selection)
+**Current Version**: v0.13.11 (OAuth finalized stream recovery and effective generation roles)
 
 This roadmap outlines the strategic direction for the AI Orchestrator. It focuses on evolving from a "text-based automation manager" to a fully multi-modal, voice-interactive home presence.
 

@@ -2,19 +2,21 @@
 
 Quick validation tests for Phase 1 core functionality.
 
-## OAuth Responses and empty-result regression tests (0.13.10)
+## OAuth Responses and empty-result regression tests (0.13.11)
 
 From `ai-orchestrator/backend`, use an isolated Python environment (not the system or agent runtime):
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -I -m pip install -r requirements-dev.txt
-.venv/bin/python -I -m pytest tests/test_oauth_responses_streaming.py tests/test_empty_agent_results.py tests/test_plan_executor_smoke.py tests/test_openai_oauth.py tests/test_version_contract.py -q
+.venv/bin/python -I -m pytest tests/test_oauth_responses_streaming.py tests/test_stream_accumulator.py tests/test_oauth_model_roles.py tests/test_empty_agent_results.py tests/test_plan_executor_smoke.py tests/test_openai_oauth.py tests/test_version_contract.py -q
 ```
 
 `-I` avoids inherited `PYTHONPATH` entries selecting another interpreter's native extensions. These tests use the real OpenAI SDK with local HTTP/SSE transports, not live credentials. They cover required streaming, completed snapshots, failed/incomplete/error streams, missing completion, transport interruption, cancellation/cleanup, tool-call usage and encrypted reasoning continuation, and unchanged API-key behavior.
 
-The implementation follows the official [OpenAI Python SDK streaming examples](https://github.com/openai/openai-python#streaming-responses): `responses.create(stream=True)` with synchronous or asynchronous event iteration. Only a successful `response.completed` snapshot is accepted; deltas are never exposed as completed answers or tool calls.
+The implementation follows the official [OpenAI Python SDK streaming implementation](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/responses/_responses.py): `responses.create(stream=True)` with synchronous or asynchronous event iteration. A successful `response.completed` is mandatory. Its populated output is authoritative; empty/null output can be repaired only from fully received `response.output_item.done` payloads. Deltas are never exposed as completed answers or tool calls. The installed minimum SDK 2.45.0 does not implement this recovery itself, so no latest-version helper is assumed.
+
+`test_oauth_model_roles.py` also executes the real startup bash/jq prefix against temporary options files (requires `bash` and `jq`), verifies false/true/missing/null defaults and unchanged saved options, and checks legacy generation routing without Ollama calls. Enabled RAG still uses local embeddings; OAuth selection does not disable it. See [OAUTH_STREAM_0_13_11.md](../../../OAUTH_STREAM_0_13_11.md) for evidence and limitations.
 
 The complete backend suite assumes writable Home Assistant `/data` storage. Outside the add-on container, provision an isolated writable equivalent before running the full suite; do not change production storage paths just to run tests. Live MCP tests remain opt-in via `MCP_SERVER_URL`.
 

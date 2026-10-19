@@ -40,7 +40,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from openai_response_stream import completed_response, response_output
+from openai_response_stream import ResponseStreamAccumulator, response_output
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,17 @@ class _OpenAICompatibleChatProvider(ChatProvider):
         return (resp.choices[0].message.content or "").strip()
 
 
+def effective_chat_model(local_model: str, provider: Optional[str] = None, *, openai_model: Optional[str] = None) -> str:
+    """OAuth uses its configured remote model for every generation role.
+
+    This resolves runtime values only; never rewrite persisted HA options or
+    embedding configuration. Other providers retain their existing selection.
+    """
+    if resolve_provider_name(provider) == PROVIDER_OPENAI_OAUTH:
+        return _strip(openai_model) or _strip(os.getenv("OPENAI_MODEL")) or "gpt-5.6-terra"
+    return local_model
+
+
 class _OpenAIOAuthChatProvider(ChatProvider):
     name = PROVIDER_OPENAI_OAUTH
 
@@ -242,7 +253,7 @@ class _OpenAIOAuthChatProvider(ChatProvider):
         client = OpenAI(api_key=token, base_url="https://api.openai.com/v1")
         system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
         kwargs: Dict[str, Any] = {
-            "model": (model if model and not model.startswith("gemma4") else self.model),
+            "model": self.model,
             "input": [m for m in messages if m.get("role") != "system"],
             "max_output_tokens": max_tokens,
             "store": False,
@@ -252,10 +263,12 @@ class _OpenAIOAuthChatProvider(ChatProvider):
         if extra_options:
             kwargs.update(extra_options)
         kwargs["stream"] = True  # OAuth requires streaming, including with extra_options.
+        kwargs["model"] = self.model  # Configured OAuth model wins role/extra overrides.
+        accumulator = ResponseStreamAccumulator()
         with client:
             with client.responses.create(**kwargs) as stream:
                 for event in stream:
-                    response = completed_response(event)
+                    response = accumulator.feed(event)
                     if response is not None:
                         return response_output(response)[0]
         raise RuntimeError("OpenAI OAuth stream ended without response.completed")
@@ -440,7 +453,7 @@ def make_chat_provider(
         if name == PROVIDER_OPENAI_OAUTH:
             from openai_oauth import OpenAIOAuthStore
             store = openai_oauth_store or OpenAIOAuthStore()
-            selected_model = _strip(openai_model) or _strip(os.getenv("OPENAI_MODEL")) or "gpt-5.4-mini"
+            selected_model = effective_chat_model("", name, openai_model=openai_model)
             return _OpenAIOAuthChatProvider(model=selected_model, oauth_store=store)
 
         if name == PROVIDER_ANTHROPIC:
@@ -469,6 +482,8 @@ def make_chat_provider(
                 api_version=foundry_api_version or os.getenv("FOUNDRY_API_VERSION"),
             )
     except Exception as exc:
+        if name == PROVIDER_OPENAI_OAUTH:
+            raise RuntimeError("OpenAI OAuth generation provider unavailable") from exc
         logger.warning("LLM provider %s unavailable (%s); falling back to ollama", name, exc)
 
     return _OllamaChatProvider(host=ollama_host)
@@ -481,6 +496,7 @@ def make_tool_backend(
     provider: Optional[str] = None,
     *,
     model: str,
+    openai_model: Optional[str] = None,
     ollama_host: Optional[str] = None,
     openai_api_key: Optional[str] = None,
     openai_base_url: Optional[str] = None,
@@ -529,9 +545,7 @@ def make_tool_backend(
             store = OpenAIOAuthStore()
             token = store.get_access_token_sync()
             effort = _strip(reasoning_effort) or _strip(os.getenv("REASONING_EFFORT")) or "medium"
-            selected_model = _strip(os.getenv("OPENAI_MODEL")) or "gpt-5.4-mini"
-            if model and not model.startswith("gemma4"):
-                selected_model = model
+            selected_model = effective_chat_model(model, name, openai_model=openai_model)
             return OpenAIResponsesBackend(
                 model=selected_model,
                 api_key=token,
@@ -559,7 +573,7 @@ def make_tool_backend(
                 agent_id=agent_id or None,
             )
     except Exception as exc:
-        if not fallback_to_ollama:
+        if name == PROVIDER_OPENAI_OAUTH or not fallback_to_ollama:
             raise RuntimeError(f"Tool backend {name} unavailable: {exc}") from exc
         logger.warning("Tool backend %s unavailable (%s); falling back to ollama", name, exc)
 

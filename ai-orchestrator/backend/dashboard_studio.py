@@ -50,7 +50,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from llm_providers import ChatProvider, make_chat_provider, resolve_provider_name
+from llm_providers import ChatProvider, make_chat_provider, resolve_provider_name, effective_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +270,8 @@ class DashboardStudio:
     # Provider/model resolution
     # ------------------------------------------------------------------
     def _resolve_model(self, provider_name: str, override: Optional[str]) -> str:
+        if provider_name == "openai_oauth":
+            return effective_chat_model("", provider_name)
         if override:
             return override
         if self._default_model:

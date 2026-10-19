@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
-EXPECTED = "0.13.10"
+EXPECTED = "0.13.11"
 
 
 def test_release_version_is_consistent_across_addon_and_dashboard():

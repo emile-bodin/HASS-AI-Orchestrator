@@ -500,7 +500,8 @@ async def test_llm_failure_never_creates_or_executes_a_plan(stubbed_agent_factor
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("empty_final", [False, True])
-async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agent_factory, empty_final):
+@pytest.mark.parametrize("terminal_output", ["populated", "empty", "null"])
+async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agent_factory, empty_final, terminal_output):
     import json
     import httpx
     import openai
@@ -545,7 +546,14 @@ async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agen
             output = [] if empty_final else [{"type": "message", "id": "answer", "role": "assistant",
                 "status": "completed", "phase": "final_answer", "content": [{"type": "output_text",
                 "text": f"{payload['lights'][0]['entity_id']}: {payload['lights'][0]['state']}", "annotations": []}]}]
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse([completed(output)]))
+        events = []
+        ending = completed(output)
+        if terminal_output != "populated":
+            events = [{"type": "response.output_item.done", "output_index": index,
+                       "sequence_number": index + 1, "item": item} for index, item in enumerate(output)]
+            ending["response"]["output"] = [] if terminal_output == "empty" else None
+        events.append(ending)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse(events))
 
     backend = OpenAIResponsesBackend(api_key="test", oauth_store=Store())
     await backend._client.close()
@@ -562,7 +570,7 @@ async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agen
     assert fired == []
     if empty_final:
         assert final["stopped_reason"] == "llm_error"
-        assert "empty output" in final["answer"]
+        assert "empty output" in final["answer"] or "invalid response.completed output" in final["answer"]
         assert final["plan"] is None
         assert plan_store.list() == []
     else:
@@ -571,6 +579,47 @@ async def test_sdk_sse_agent_runs_guarded_read_observes_and_answers(stubbed_agen
         assert final["iterations"] == 2
         assert final["plan"]["status"] == "executed"
         assert plan_store.get(final["plan"]["id"]).status == "executed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["partial", "malformed", "missing-completion", "failed", "incomplete"])
+async def test_oauth_unfinished_arguments_never_execute_tools(stubbed_agent_factory, failure):
+    import httpx
+    import openai
+    from reasoning_harness import OpenAIResponsesBackend, ToolSemantics
+    from tests.test_oauth_responses_streaming import Store, completed, response, sse
+    agent, plan_store, _ = stubbed_agent_factory([])
+    observed = []
+
+    async def read(name, arguments):
+        observed.append((name, arguments))
+        return {"state": "on"}
+
+    agent.registry._routes.clear()
+    agent.registry.register("fixture", [{"type": "function", "function": {
+        "name": "read", "parameters": {"type": "object", "properties": {"_raw": {"type": "string"}}},
+    }}], read, semantics=ToolSemantics(read_only=True))
+    call = {"type": "function_call", "id": "fc", "call_id": "call", "name": "read",
+            "arguments": "{" if failure == "malformed" else "{}", "status": "completed"}
+    item_type = "response.output_item.added" if failure == "partial" else "response.output_item.done"
+    events = [{"type": item_type, "sequence_number": 1, "output_index": 0, "item": call}]
+    if failure in {"failed", "incomplete"}:
+        events.append({"type": f"response.{failure}", "sequence_number": 2, "response": response([], failure)})
+    elif failure != "missing-completion":
+        events.append(completed([]))
+    backend = OpenAIResponsesBackend(api_key="fixture", oauth_store=Store())
+    await backend._client.close()
+    async with openai.AsyncOpenAI(api_key="fixture", http_client=httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, text=sse(events))),
+    )) as client:
+        backend._client = client
+        agent.llm = agent.harness.llm = backend
+        result = await agent.run("check", mode="plan")
+    assert observed == []
+    assert result.stopped_reason == "llm_error"
+    assert result.plan is None
+    assert plan_store.list() == []
 
 
 @pytest.mark.asyncio
