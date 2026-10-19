@@ -33,8 +33,21 @@ const statusTone = status => {
     return '';
 };
 
-export const AgentGrid = ({ agents = [], onAgentCreate }) => {
+export const AgentGrid = ({ agents = [], onAgentCreate, onAgentsChanged }) => {
     const [selectedAgent, setSelectedAgent] = useState(null);
+    const [busy, setBusy] = useState(null);
+    const [error, setError] = useState('');
+    const activate = async agent => {
+        setBusy(agent.agent_id);
+        setError('');
+        try {
+            const response = await fetch(`api/factory/agents/${agent.agent_id}/${agent.paused ? 'resume' : 'pause'}`, {method: 'POST'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Agent activation failed');
+            await onAgentsChanged?.();
+        } catch (error) { setError(error.message); }
+        finally { setBusy(null); }
+    };
 
     return (
         <>
@@ -44,6 +57,7 @@ export const AgentGrid = ({ agents = [], onAgentCreate }) => {
                     <span className="cp-pill">{agents.length} total</span>
                 </div>
 
+                {error && <p role="alert">{error}</p>}
                 {agents.length === 0 ? (
                     <div className="cp-empty-state">
                         <Activity size={26} />
@@ -55,7 +69,8 @@ export const AgentGrid = ({ agents = [], onAgentCreate }) => {
                         {agents.map(agent => {
                             const Icon = iconFor(agent.agent_id);
                             return (
-                                <button className="cp-agent-card" type="button" key={agent.agent_id} onClick={() => setSelectedAgent(agent)}>
+                                <div key={agent.agent_id}>
+                                <button className="cp-agent-card" type="button" onClick={() => setSelectedAgent(agent)}>
                                     <span className="cp-agent-icon"><Icon size={19} /></span>
                                     <span className="cp-agent-card-title">
                                         <strong>{agent.name || agent.agent_id}</strong>
@@ -63,8 +78,12 @@ export const AgentGrid = ({ agents = [], onAgentCreate }) => {
                                     </span>
                                     <span className="cp-pill">{String(agent.model || 'local').split(':')[0]}</span>
                                     <span className="cp-agent-card-meta"><Clock3 size={13} /> Last decision: {formatTime(agent.last_decision)}</span>
-                                    <span className="cp-agent-card-note"><Bot size={13} /> {agent.status === 'deciding' ? 'Evaluating current state…' : 'Ready for the next event'}</span>
+                                    <span className="cp-agent-card-note"><Bot size={13} /> {agent.paused ? 'Paused · no autonomous actions' : agent.status === 'deciding' ? 'Evaluating current state…' : agent.legacy_enabled ? 'Ready for the next legacy cycle' : 'Ready · legacy loops disabled'}</span>
                                 </button>
+                                <button className="cp-button mt-2" disabled={busy === agent.agent_id} onClick={() => activate(agent)}>
+                                    {agent.paused ? 'Resume' : 'Pause'} {agent.name}
+                                </button>
+                                </div>
                             );
                         })}
                         <button className="cp-add-card" type="button" onClick={onAgentCreate}>
@@ -81,6 +100,7 @@ export const AgentGrid = ({ agents = [], onAgentCreate }) => {
                     agent={selectedAgent}
                     onClose={() => setSelectedAgent(null)}
                     onDelete={() => setSelectedAgent(null)}
+                    onChanged={onAgentsChanged}
                 />
             )}
         </>

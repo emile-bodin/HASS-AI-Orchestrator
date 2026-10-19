@@ -41,7 +41,8 @@ class ArchitectAgent:
             return []
             
         try:
-            states = await self.ha_client.get_states()
+            from agent_lifecycle import domain_allowed
+            states = [s for s in await self.ha_client.get_states() if domain_allowed(s['entity_id'])]
             
             # 1. Filter for controllable/interesting entities
             # We focus on actuators. Sensors are secondary (supportive).
@@ -182,7 +183,8 @@ class ArchitectAgent:
         from the Home Assistant registry (Anti-Hallucination).
         """
         try:
-            states = await self.ha_client.get_states()
+            from agent_lifecycle import domain_allowed
+            states = [s for s in await self.ha_client.get_states() if domain_allowed(s['entity_id'])]
             all_ids = [s['entity_id'] for s in states]
             
             # 1. Extract Keywords from Instruction
@@ -218,7 +220,7 @@ class ArchitectAgent:
             # However, limit to reasonable count to avoid context overflow? 
             # 20 seems safe for now.
             
-            result = list(matched_entities)
+            result = sorted(matched_entities)
             # Prioritize actuators (domains we can control) vs sensors
             actuators = [e for e in result if e.split('.')[0] in ['light', 'switch', 'climate', 'cover', 'lock', 'fan', 'media_player', 'vacuum']]
             sensors = [e for e in result if e not in actuators]

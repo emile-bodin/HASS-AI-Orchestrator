@@ -65,7 +65,7 @@ def test_startup_jq_preserves_default_true_boolean_options(tmp_path, value, expe
     path = tmp_path / "options.json"
     path.write_text(json.dumps(config))
     source = (Path(__file__).parents[2] / "run.sh").read_text().split("# Start Ollama server")[0]
-    source = source.replace('CONFIG_PATH="/data/options.json"', f'CONFIG_PATH="{path}"')
+    source = source.replace('CONFIG_PATH="${CONFIG_PATH:-/data/options.json}"', f'CONFIG_PATH="{path}"')
     result = subprocess.run(["bash", "-c", source], text=True, capture_output=True, check=True)
     assert f"RAG Enabled: {expected}" in result.stdout
     assert f"Dry Run Mode: {expected}" in result.stdout

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bot, Wand2, Plus, Save, X, Lightbulb } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
+import { EntitySelector } from './EntitySelector';
 
 export const AgentFactory = ({
     onAgentCreated,
@@ -93,7 +94,7 @@ export const AgentFactory = ({
                 setGeneratedConfig(null);
                 if (onAgentCreated) onAgentCreated();
                 if (onDismiss) onDismiss();
-                alert("Agent Saved! Restart add-on to activate.");
+                alert("Agent deployed and ready, paused. Resume explicitly when ready. No restart required.");
             } else {
                 const d = await res.json();
                 setError(d.detail);
@@ -261,12 +262,9 @@ export const AgentFactory = ({
                                         </div>
 
                                         <div className="text-slate-500 self-start pt-1">Entities</div>
-                                        <div className="col-span-2 flex flex-wrap gap-1">
-                                            {generatedConfig.entities.map(e => (
-                                                <span key={e} className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-300">
-                                                    {e}
-                                                </span>
-                                            ))}
+                                        <div className="col-span-2">
+                                            <EntitySelector value={generatedConfig.entities || []}
+                                                onChange={entities => setGeneratedConfig({ ...generatedConfig, entities })} />
                                         </div>
                                     </div>
 
@@ -302,9 +300,10 @@ export const AgentFactory = ({
                                 </button>
                                 <button
                                     onClick={handleSave}
+                                    disabled={!generatedConfig.entities?.length}
                                     className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2"
                                 >
-                                    <Save size={18} /> Approve & Deploy
+                                    <Save size={18} /> Deploy paused
                                 </button>
                             </div>
                         </div>

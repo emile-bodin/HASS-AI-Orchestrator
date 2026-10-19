@@ -1,6 +1,6 @@
 {
     "name": "Home Assistant AI Control Plane",
-    "version": "0.13.11",
+    "version": "0.13.12",
     "slug": "ai-orchestrator",
     "description": "A guarded AI control plane for Home Assistant with local and cloud models, multi-agent orchestration, RAG, and policy-enforced actions.",
     "url": "https://github.com/emile-bodin/HASS-AI-Orchestrator",
@@ -25,6 +25,8 @@
     "homeassistant_api": true,
     "options": {
         "ollama_host": "http://localhost:11434",
+        "ollama_mode": "auto",
+        "internal_ollama_port": 11435,
         "dry_run_mode": true,
         "log_level": "info",
         "ha_url": "",
@@ -78,6 +80,8 @@
     },
     "schema": {
         "ollama_host": "str",
+        "ollama_mode": "list(auto|internal|external)",
+        "internal_ollama_port": "int(1024,65535)",
         "dry_run_mode": "bool",
         "log_level": "list(debug|info|warning|error)",
         "ha_url": "str?",

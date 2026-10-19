@@ -44,6 +44,7 @@ export function AutomationHub({ agents, suggestions, onAgentsChanged }) {
                         agents={agents}
                         suggestions={suggestions}
                         onAgentCreate={openFactory}
+                        onAgentsChanged={onAgentsChanged}
                         onSuggestionClick={openFactory}
                     />
                 ) : <TriggersPanel />}
