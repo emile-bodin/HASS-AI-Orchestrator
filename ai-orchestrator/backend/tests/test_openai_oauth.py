@@ -98,7 +98,8 @@ def test_oauth_chat_provider_uses_responses_api(monkeypatch):
     class FakeResponse:
         output_text = "hello"
         status = "completed"
-        output = []
+        output = [{"type": "message", "status": "completed", "role": "assistant",
+                   "content": [{"type": "output_text", "text": "hello"}]}]
 
     class FakeStream:
         def __enter__(self):

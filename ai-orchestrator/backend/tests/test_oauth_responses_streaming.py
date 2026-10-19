@@ -129,6 +129,50 @@ async def test_async_oauth_stream_preserves_tools_usage_and_encrypted_continuati
     assert "previous_response_id" not in requests[1]
 
 
+BAD_OUTPUTS = [
+    pytest.param([], "empty", id="empty"),
+    pytest.param([{"type": "reasoning", "id": "rs", "summary": [],
+                   "encrypted_content": "SECRET"}], "empty", id="reasoning-only"),
+    pytest.param([{"type": "message", "id": "msg", "role": "assistant", "status": "completed",
+                   "content": [{"type": "refusal", "refusal": "SECRET"}]}], "refusal", id="refusal"),
+    pytest.param([{"type": "custom_tool_call", "call_id": "call", "name": "read",
+                   "input": "SECRET"}], "unsupported", id="custom-tool"),
+    pytest.param([{"type": "mcp_call", "id": "mc", "name": "read", "arguments": "SECRET"}],
+                 "unsupported", id="hosted-mcp"),
+    pytest.param([{"type": "SECRET", "content": "SECRET"}], "unsupported", id="unknown-type"),
+    pytest.param([{"type": "message", "id": "msg", "role": "assistant", "status": "completed",
+                   "phase": "commentary", "content": [{"type": "output_text", "text": "checking", "annotations": []}]}],
+                 "commentary", id="commentary-only"),
+]
+
+
+@pytest.mark.parametrize("output, message", BAD_OUTPUTS)
+def test_simple_oauth_rejects_unusable_completed_output(monkeypatch, output, message):
+    provider, _, transports = sync_provider(monkeypatch, [completed(output)])
+    with pytest.raises(RuntimeError, match=message) as error:
+        provider.chat("gpt-5.6-terra", [{"role": "user", "content": "check lights"}])
+    assert "SECRET" not in str(error.value)
+    assert "output_types" in str(error.value)
+    assert all(transport.is_closed for transport in transports)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("output, message", BAD_OUTPUTS)
+async def test_async_oauth_rejects_unusable_completed_output(output, message):
+    backend = OpenAIResponsesBackend(api_key="test-key", oauth_store=Store())
+    await backend._client.close()
+    async with openai.AsyncOpenAI(api_key="test-key", http_client=httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, text=sse([completed(output)]),
+        )),
+    )) as client:
+        backend._client = client
+        with pytest.raises(RuntimeError, match=message) as error:
+            await backend.chat([{"role": "user", "content": "check lights"}], [])
+        assert "SECRET" not in str(error.value)
+        assert "output_types" in str(error.value)
+
+
 BAD_STREAMS = [
     pytest.param([{"type": "response.failed", "sequence_number": 1,
                    "response": response(status="failed")}, completed()], "failed", id="failed"),

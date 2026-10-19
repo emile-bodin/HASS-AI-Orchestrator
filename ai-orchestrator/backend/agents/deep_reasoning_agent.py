@@ -218,6 +218,7 @@ class DeepReasoningAgent:
         else:
             model_for_provider = (
                 openai_model if resolved == "openai"
+                else (openai_model or os.getenv("OPENAI_MODEL") or "gpt-5.4-mini") if resolved == "openai_oauth"
                 else github_model if resolved == "github"
                 else foundry_model if resolved == "foundry"
                 else ollama_model
@@ -239,7 +240,7 @@ class DeepReasoningAgent:
             logger.info(
                 "DeepReasoningAgent using %s backend (%s)",
                 getattr(self.llm, "name", resolved),
-                model_for_provider,
+                getattr(self.llm, "model", model_for_provider),
             )
 
         self.registry = ToolRegistry()
@@ -492,7 +493,7 @@ class DeepReasoningAgent:
                 plan: Optional[PlanProposal] = None
                 execution_results: Optional[List[Dict[str, Any]]] = None
                 executed_inline = False
-                if interceptor is not None:
+                if interceptor is not None and result.stopped_reason == "final" and result.answer.strip():
                     plan = self._build_plan(run_id, goal, result, interceptor.intents)
                     if not plan.intents:
                         # A read-only run has nothing to approve or replay.

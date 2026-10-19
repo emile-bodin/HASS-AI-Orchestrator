@@ -40,7 +40,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from openai_response_stream import completed_response
+from openai_response_stream import completed_response, response_output
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class _OpenAICompatibleChatProvider(ChatProvider):
             if extra_options:
                 response_kwargs.update(extra_options)
             response = self._client.responses.create(**response_kwargs)
-            return (getattr(response, "output_text", "") or "").strip()
+            return response_output(response)[0]
 
         kwargs: Dict[str, Any] = {
             "model": model,
@@ -257,7 +257,7 @@ class _OpenAIOAuthChatProvider(ChatProvider):
                 for event in stream:
                     response = completed_response(event)
                     if response is not None:
-                        return (getattr(response, "output_text", "") or "").strip()
+                        return response_output(response)[0]
         raise RuntimeError("OpenAI OAuth stream ended without response.completed")
 
 
