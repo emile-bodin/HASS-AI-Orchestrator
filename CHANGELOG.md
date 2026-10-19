@@ -1,6 +1,15 @@
 # Changelog
 <br>
 
+## [0.13.8] - 2026-10-19
+### Fixed — OpenAI OAuth authorization
+- Uses a stable `urn:uuid:` host identifier required by OpenAI's Sign in with ChatGPT flow.
+- Regenerates previously stored invalid host identifiers before creating a new authorization link.
+- Keeps the laptop loopback callback plus manual URL-paste flow for Home Assistant installations on another host.
+
+### Verification
+- OAuth and version contract tests pass.
+
 ## [0.13.7] - 2026-10-19
 ### Added — Home Assistant updateable release
 - Bumped the Home Assistant add-on version so the add-on store can detect and offer the update from `0.13.6`.
