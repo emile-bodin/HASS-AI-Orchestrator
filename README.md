@@ -1,9 +1,11 @@
-# Graham's AI Orchestrator
+# Home Assistant AI Control Plane
 
-[![Version](https://img.shields.io/badge/version-v0.13.6-blue)](https://github.com/ITSpecialist111/HASS-AI-Orchestrator/releases/tag/0.13.6)
+[![Version](https://img.shields.io/badge/version-v0.13.6-blue)](https://github.com/emile-bodin/HASS-AI-Orchestrator/releases/tag/0.13.6)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Add--on-41BDF5)
 ![Agent Kernel](https://img.shields.io/badge/agent%20kernel-deterministic-8B5CF6)
 ![Tests](https://img.shields.io/badge/backend%20tests-286%20passing-22C55E)
+
+> **Side project notice:** This is an independent side project based on the original AI Orchestrator project by Graham Hosking. It keeps the original project's core safety and orchestration ideas while developing its own Home Assistant integration, provider support, OAuth work, and deployment path. It is not the original upstream project.
 
 ## A reasoning and policy layer for the intelligent home
 
