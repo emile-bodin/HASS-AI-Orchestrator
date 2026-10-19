@@ -55,6 +55,8 @@ try:
 except ImportError:  # pragma: no cover - dependency is declared, guard keeps imports fail-soft
     Draft202012Validator = None  # type: ignore[assignment]
 
+from openai_response_stream import completed_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -719,8 +721,16 @@ class OpenAIResponsesBackend:
         if self._oauth_store is not None:
             token = await self._oauth_store.get_access_token()
             self._client.api_key = token
-
-        resp = await self._client.responses.create(**kwargs)
+            stream = await self._client.responses.create(**kwargs, stream=True)
+            async with stream:
+                async for event in stream:
+                    resp = completed_response(event)
+                    if resp is not None:
+                        break
+                else:
+                    raise RuntimeError("OpenAI OAuth stream ended without response.completed")
+        else:
+            resp = await self._client.responses.create(**kwargs)
         calls: List[ToolCall] = []
         text_chunks: List[str] = []
         for item in getattr(resp, "output", []) or []:

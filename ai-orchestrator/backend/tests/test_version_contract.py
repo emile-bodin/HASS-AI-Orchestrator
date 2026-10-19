@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
-EXPECTED = "0.13.8"
+EXPECTED = "0.13.9"
 
 
 def test_release_version_is_consistent_across_addon_and_dashboard():
@@ -18,3 +18,7 @@ def test_release_version_is_consistent_across_addon_and_dashboard():
     assert lockfile["version"] == EXPECTED
     assert lockfile["packages"][""]["version"] == EXPECTED
     assert re.search(rf"^## \[{re.escape(EXPECTED)}\]", changelog, re.MULTILINE)
+    addon_changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert re.search(rf"^## \[{re.escape(EXPECTED)}\]", addon_changelog, re.MULTILINE)
+    layout = (REPO / "dashboard/src/components/Layout.jsx").read_text(encoding="utf-8")
+    assert f"version = 'v{EXPECTED}'" in layout

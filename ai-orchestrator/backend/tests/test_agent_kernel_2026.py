@@ -434,6 +434,7 @@ async def test_openai_responses_replays_encrypted_reasoning_locally():
     backend.effort = "medium"
     backend.max_output_tokens = 1000
     backend.store = False
+    backend._oauth_store = None  # API-key mode; this fixture bypasses __init__.
     backend._client = SimpleNamespace(responses=Responses())
     tools = [schema("read")]
     messages = [
@@ -451,6 +452,7 @@ async def test_openai_responses_replays_encrypted_reasoning_locally():
     assert first.tool_calls[0].id == "call1"
     assert second.content == "done"
     assert captured[0]["store"] is False
+    assert all("stream" not in request for request in captured)
     assert captured[0]["include"] == ["reasoning.encrypted_content"]
     second_input = captured[1]["input"]
     assert any(item.get("encrypted_content") == "ciphertext" for item in second_input)

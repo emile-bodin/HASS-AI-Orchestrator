@@ -1,6 +1,16 @@
 # Changelog
 <br>
 
+## [0.13.9] - 2026-10-19
+### Fixed — OpenAI OAuth Responses streaming
+- Requests `stream=true` for OAuth simple chat and async reasoning/tool calls, fixing the post-login HTTP 400 response.
+- Requires a successful `response.completed` snapshot; failed, incomplete, error, and prematurely ended streams are rejected rather than returning partial output.
+- Preserves function calls, token usage, and encrypted reasoning continuation across tool turns. API-key providers retain their existing non-streaming behavior.
+- Adds Home Assistant add-on-local release notes so the update UI can display this fix.
+
+### Verification
+- Regression tests exercise the real OpenAI SDK against local SSE transports, including tool continuation and interrupted streams. No live OAuth inference is claimed.
+
 ## [0.13.8] - 2026-10-19
 ### Fixed — OpenAI OAuth authorization
 - Uses a stable `urn:uuid:` host identifier required by OpenAI's Sign in with ChatGPT flow.

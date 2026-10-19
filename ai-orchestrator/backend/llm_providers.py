@@ -40,6 +40,8 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from openai_response_stream import completed_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -249,8 +251,14 @@ class _OpenAIOAuthChatProvider(ChatProvider):
             kwargs["instructions"] = system
         if extra_options:
             kwargs.update(extra_options)
-        response = client.responses.create(**kwargs)
-        return (getattr(response, "output_text", "") or "").strip()
+        kwargs["stream"] = True  # OAuth requires streaming, including with extra_options.
+        with client:
+            with client.responses.create(**kwargs) as stream:
+                for event in stream:
+                    response = completed_response(event)
+                    if response is not None:
+                        return (getattr(response, "output_text", "") or "").strip()
+        raise RuntimeError("OpenAI OAuth stream ended without response.completed")
 
 
 class _AnthropicChatProvider(ChatProvider):
