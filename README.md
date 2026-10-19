@@ -406,11 +406,11 @@ Remote deep-reasoner misconfiguration fails explicitly instead of silently chang
 
 ### OpenAI via Sign in with ChatGPT
 
-Set the add-on option `llm_provider` to `openai_oauth`, choose an OpenAI model in `openai_model`, and configure `openai_oauth_redirect_uri` to the exact URL ending in `/api/openai/oauth/callback`. Then open the Orchestrator dashboard, go to **Settings**, and press **Sign in**. The browser completes the OpenAI authorization flow and the callback stores the refreshable credentials under `/data/openai_oauth.json` with mode `0600`.
+Set the add-on option `llm_provider` to `openai_oauth`, choose an OpenAI model in `openai_model`, and leave `openai_oauth_redirect_uri` empty. The dashboard uses OpenAI's required loopback redirect `http://127.0.0.1:1455/auth/callback`: press **Sign in**, complete the browser login, copy the full callback URL from the browser address bar, and paste it into **Complete sign-in**. The add-on validates the state and exchanges the one-time code, then stores refreshable credentials under `/data/openai_oauth.json` with mode `0600`.
 
-The OAuth provider uses the Responses API with `store=false`, requests the `chatgpt.tokens.use.direct` scope, refreshes access tokens before inference, and keeps tokens out of dashboard responses and logs. ChatGPT-plan usage is only available when OpenAI grants that scope to the account and model request.
+Do not use a public HTTPS callback such as a Home Assistant hostname. The open-source OpenAI OAuth contract currently requires an HTTP `127.0.0.1` loopback redirect. The manual callback paste flow exists so the add-on can run on a different host from the browser without exposing an OAuth callback endpoint publicly.
 
-For Home Assistant ingress, the callback URL must be the exact ingress URL that the browser can reach. OpenAI's open-source OAuth contract documents a loopback callback for local clients, so a remote HA installation may require a callback URL supported by the selected OpenAI OAuth registration flow.
+The OAuth provider uses the Responses API with `store=false`, requests the `chatgpt.tokens.use.direct` scope, refreshes access tokens before inference, and keeps tokens out of dashboard responses and logs.
 
 ### One local Gemma, three reasoning profiles
 

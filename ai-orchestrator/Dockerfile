@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     jq \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -40,8 +41,14 @@ COPY translations/ /app/translations/
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/dashboard/dist /app/dashboard/dist
 
-# Install Ollama CLI (for model management)
-RUN curl -fsSL https://ollama.com/install.sh | sh || echo "Ollama install skipped, will use external server"
+# Install Ollama CLI and fail the image build if the binary is unavailable.
+# The official installer uses zstd archives on current Linux releases.
+RUN set -eux; \
+    curl -fsSL https://ollama.com/install.sh -o /tmp/ollama-install.sh; \
+    sh /tmp/ollama-install.sh; \
+    command -v ollama; \
+    ollama --version; \
+    rm -f /tmp/ollama-install.sh
 
 # Create data directory for persistent storage
 RUN mkdir -p /data/decisions

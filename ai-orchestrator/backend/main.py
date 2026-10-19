@@ -112,7 +112,7 @@ from ingress_middleware import IngressMiddleware
 from external_mcp import ExternalMCPClient
 from agents.deep_reasoning_agent import DeepReasoningAgent
 from reasoning_harness import REASONING_PROFILES
-from openai_oauth import OpenAIOAuthStore
+from openai_oauth import OpenAIOAuthStore, parse_callback_url
 from memory_store import MemoryStore
 from native_prompts import NativePromptLibrary
 from plan_executor import PlanStore
@@ -1808,10 +1808,8 @@ class OpenAIOAuthStartRequest(BaseModel):
     agent_name: Optional[str] = None
 
 
-class OpenAIOAuthCallbackRequest(BaseModel):
-    code: str
-    state: str
-    client_id: Optional[str] = None
+class OpenAIOAuthCallbackPasteRequest(BaseModel):
+    callback_url: str
 
 
 @app.get("/api/openai/oauth/status")
@@ -1826,17 +1824,25 @@ async def openai_oauth_start(req: OpenAIOAuthStartRequest):
     if openai_oauth_store is None:
         raise HTTPException(status_code=503, detail="OAuth store is not ready")
     redirect_uri = (req.redirect_uri or os.getenv("OPENAI_OAUTH_REDIRECT_URI", "")).strip()
-    if not redirect_uri:
-        raise HTTPException(
-            status_code=400,
-            detail="Configure openai_oauth_redirect_uri first. It must exactly match the OAuth callback URL.",
-        )
     try:
         return openai_oauth_store.begin_authorization(
             redirect_uri,
             (req.agent_name or os.getenv("OPENAI_OAUTH_AGENT_NAME", "HASS-AI-Orchestrator")).strip(),
         )
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/openai/oauth/complete")
+async def openai_oauth_complete(req: OpenAIOAuthCallbackPasteRequest):
+    if openai_oauth_store is None:
+        raise HTTPException(status_code=503, detail="OAuth store is not ready")
+    try:
+        callback = parse_callback_url(req.callback_url)
+        return await openai_oauth_store.complete_callback(
+            callback["code"], callback["state"], callback.get("client_id") or None
+        )
+    except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

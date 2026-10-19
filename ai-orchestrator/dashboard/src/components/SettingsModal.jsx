@@ -8,6 +8,7 @@ export const SettingsModal = ({ onClose, currentConfig, onUpdate }) => {
     const [config, setConfig] = useState(currentConfig || { dry_run_mode: true });
     const [loading, setLoading] = useState(null);
     const [error, setError] = useState(null);
+    const [oauthCallbackUrl, setOauthCallbackUrl] = useState('');
     const closeRef = useRef(null);
     const dialogRef = useDialogFocus(onClose, closeRef);
 
@@ -44,6 +45,27 @@ export const SettingsModal = ({ onClose, currentConfig, onUpdate }) => {
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || `${response.status}: OAuth start failed`);
             window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(null);
+        }
+    };
+
+    const completeOpenAIOAuth = async () => {
+        setLoading('openai_oauth_complete');
+        setError(null);
+        try {
+            const response = await fetch('api/openai/oauth/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callback_url: oauthCallbackUrl }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || `${response.status}: OAuth completion failed`);
+            setConfig(prev => ({ ...prev, openai_oauth_status: data }));
+            onUpdate?.({ ...config, openai_oauth_status: data });
+            setOauthCallbackUrl('');
         } catch (err) {
             setError(err.message);
         } finally {
@@ -121,6 +143,17 @@ export const SettingsModal = ({ onClose, currentConfig, onUpdate }) => {
                         <div>
                             <strong>OpenAI via ChatGPT OAuth</strong>
                             <p>{config.openai_oauth_status?.authenticated ? `Connected${config.openai_oauth_status.account?.email ? ` as ${config.openai_oauth_status.account.email}` : ''}.` : 'Sign in with ChatGPT to use eligible Responses API models without an API key.'}</p>
+                            <p className="cp-text-muted">Open Sign in, finish login, copy the full 127.0.0.1 callback URL from the browser address bar, then paste it below.</p>
+                            <input
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-300 px-2 py-1.5 mt-2"
+                                value={oauthCallbackUrl}
+                                onChange={event => setOauthCallbackUrl(event.target.value)}
+                                placeholder="http://127.0.0.1:1455/auth/callback?code=...&state=..."
+                                aria-label="OpenAI OAuth callback URL"
+                            />
+                            <button className="cp-button mt-2" type="button" onClick={completeOpenAIOAuth} disabled={!!loading || !oauthCallbackUrl.trim()}>
+                                {loading === 'openai_oauth_complete' ? <Loader2 size={14} className="cp-spin" /> : <Key size={14} />} Complete sign-in
+                            </button>
                         </div>
                         <div className="cp-settings-actions">
                             <button className="cp-button cp-button--primary" type="button" onClick={startOpenAIOAuth} disabled={!!loading}>
