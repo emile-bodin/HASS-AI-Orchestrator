@@ -3950,3 +3950,10 @@ html[data-theme="dark"] .text-white {
     margin: -12px -12px 12px;
   }
 }
+
+.cp-settings-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}

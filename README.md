@@ -395,11 +395,20 @@ AI Orchestrator is provider-neutral at the kernel boundary.
 |---|---|---|
 | `ollama` | `gemma4:e4b` | Default and most private option; explicit thinking, native tools, and local embeddings when RAG is enabled |
 | `openai` | `gpt-5.6-terra` | Uses the Responses API, explicit reasoning effort, and local replay of encrypted reasoning items with provider storage disabled by default |
+| `openai_oauth` | `gpt-5.4-mini` | Sign in with ChatGPT OAuth, uses eligible ChatGPT-plan Responses API requests, refreshes access tokens, and never stores an API key |
 | `anthropic` | `claude-opus-4-8` | Uses strict tools, adaptive thinking, interleaved reasoning between tools, and signed content-block continuity |
 | `github` | A tool-capable model available to the account | Uses GitHub Models' OpenAI-compatible interface |
 | `foundry` | A deployed model name | Model-deployment mode keeps tools local; hosted-agent mode owns its remote tool runtime |
 
 Remote deep-reasoner misconfiguration fails explicitly instead of silently changing provider or sending a cloud model name to Ollama.
+
+### OpenAI via Sign in with ChatGPT
+
+Set the add-on option `llm_provider` to `openai_oauth`, choose an OpenAI model in `openai_model`, and configure `openai_oauth_redirect_uri` to the exact URL ending in `/api/openai/oauth/callback`. Then open the Orchestrator dashboard, go to **Settings**, and press **Sign in**. The browser completes the OpenAI authorization flow and the callback stores the refreshable credentials under `/data/openai_oauth.json` with mode `0600`.
+
+The OAuth provider uses the Responses API with `store=false`, requests the `chatgpt.tokens.use.direct` scope, refreshes access tokens before inference, and keeps tokens out of dashboard responses and logs. ChatGPT-plan usage is only available when OpenAI grants that scope to the account and model request.
+
+For Home Assistant ingress, the callback URL must be the exact ingress URL that the browser can reach. OpenAI's open-source OAuth contract documents a loopback callback for local clients, so a remote HA installation may require a callback URL supported by the selected OpenAI OAuth registration flow.
 
 ### One local Gemma, three reasoning profiles
 

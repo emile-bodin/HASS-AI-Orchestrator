@@ -5,6 +5,12 @@ configuration:
   ollama_host:
     name: Ollama Host
     description: "URL of your Ollama instance (e.g., http://localhost:11434)."
+  openai_oauth_redirect_uri:
+    name: OpenAI OAuth Redirect URI
+    description: "Exact callback URL configured for Sign in with ChatGPT. Use the add-on URL ending in /api/openai/oauth/callback, or the documented loopback callback when running locally."
+  openai_oauth_agent_name:
+    name: OpenAI OAuth Agent Name
+    description: "Name shown to you during Sign in with ChatGPT authorization."
   log_level:
     name: Log Level
     description: "Verbosity of backend logs."
