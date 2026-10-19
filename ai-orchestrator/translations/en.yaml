@@ -2,9 +2,15 @@ configuration:
   dry_run_mode:
     name: Dry Run Mode
     description: "If enabled, the AI will make decisions and log them but acts as a 'simulated' execution - no actual changes will be made to Home Assistant entities. Great for testing prompt safety."
+  ollama_mode:
+    name: Ollama server mode
+    description: "Auto manages the bundled server for the default localhost:11434 address; other addresses remain external. Internal always manages a bundled server. External never starts or stops a server."
+  internal_ollama_port:
+    name: Internal Ollama port
+    description: "Dedicated loopback port for the bundled server (default 11435). An occupied port is refused, never reused or terminated."
   ollama_host:
     name: Ollama Host
-    description: "URL of your Ollama instance (e.g., http://localhost:11434)."
+    description: "External Ollama URL. In auto mode, the legacy default http://localhost:11434 selects the bundled server on the internal port."
   openai_oauth_redirect_uri:
     name: OpenAI OAuth Redirect URI
     description: "Leave blank to use OpenAI's required HTTP 127.0.0.1 loopback callback and manually paste the callback URL after browser sign-in. Public HTTPS callbacks are not accepted by the open-source flow."

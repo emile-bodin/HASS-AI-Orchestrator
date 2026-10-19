@@ -1,6 +1,10 @@
 # Changelog
 
 ## [0.13.12] - 2026-10-19
+### Fixed — Bundled Ollama lifecycle
+- Start the managed server with persistent HOME/models and explicit f16 KV cache. Use a dedicated configurable loopback port (11435), refuse occupied ports, verify owned-process liveness and supervise backend/server shutdown together.
+- Added auto/internal/external server selection and explicit effective endpoint binding for RAG embeddings/model pulls. External servers are never stopped or reconfigured. See OLLAMA_RUNTIME.md.
+- Follow-up verification: 14 local lifecycle fixture tests passed; no live inference/container build. Full suite not rerun for this follow-up at user request.
 ### Added — Agent management without backend restart
 - Searchable, editable entity selector grouped by HA domain for Factory deployment and agent edits; friendly names, selected counts, remove support, and restricted/missing historical entries.
 - Server validates entity existence and the application's allowed/blocked domain policy (blocked wins). Empty selection is not dynamic/all. Instruction edits preserve explicit selections.

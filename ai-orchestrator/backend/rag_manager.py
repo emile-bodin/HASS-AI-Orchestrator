@@ -38,6 +38,9 @@ class RagManager:
         """
         self.persist_dir = persist_dir
         self.embedding_model = embedding_model
+        # Bind both embeddings and auto-pull to the startup-selected endpoint;
+        # never rely on the SDK's module-level default client.
+        self.ollama_client = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"))
         # Set to True after a confirmed successful embedding call so we
         # only attempt to ``ollama.pull`` the model once per process when
         # it's missing (issue #2).
@@ -78,7 +81,7 @@ class RagManager:
         having to remember ``ollama pull nomic-embed-text`` (issue #2).
         """
         try:
-            response = ollama.embeddings(model=self.embedding_model, prompt=text)
+            response = self.ollama_client.embeddings(model=self.embedding_model, prompt=text)
             self._embedding_model_ready = True
             return response["embedding"]
         except Exception as e:
@@ -95,8 +98,8 @@ class RagManager:
                     "one-shot ollama.pull...", self.embedding_model,
                 )
                 try:
-                    ollama.pull(self.embedding_model)
-                    response = ollama.embeddings(
+                    self.ollama_client.pull(self.embedding_model)
+                    response = self.ollama_client.embeddings(
                         model=self.embedding_model, prompt=text
                     )
                     self._embedding_model_ready = True

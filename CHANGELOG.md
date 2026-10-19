@@ -2,6 +2,9 @@
 <br>
 
 ## [0.13.12] - 2026-10-19
+### Fixed — Bundled Ollama lifecycle
+- Persistent HOME/model storage, explicit f16 KV cache, dedicated configurable port 11435, occupied-port refusal and owned-process supervision. RAG uses the effective endpoint. External servers remain untouched; see OLLAMA_RUNTIME.md.
+- Follow-up: 14 lifecycle fixture tests passed; full-suite rerun omitted at user request. No live model/container validation.
 ### Added — Agent management without backend restart
 - Searchable, editable entity selector grouped by HA domain for Factory deployment and agent edits; friendly names, selected counts, remove support, and restricted/missing historical entries.
 - Server validates entity existence and the application's allowed/blocked domain policy (blocked wins). Empty selection is not dynamic/all. Instruction edits preserve explicit selections.
