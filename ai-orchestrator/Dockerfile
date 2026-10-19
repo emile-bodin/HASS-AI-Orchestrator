@@ -61,7 +61,7 @@ EXPOSE 8999
 ARG BUILD_VERSION
 LABEL io.hass.version="${BUILD_VERSION}" \
       io.hass.type="addon" \
-      io.hass.name="AI Orchestrator" \
+      io.hass.name="Home Assistant AI Control Plane" \
   io.hass.description="Gemma-powered Home Assistant reasoning with deterministic guarded tools and human-approved plans" \
       io.hass.arch="amd64|armv7|aarch64"
 

@@ -1,9 +1,9 @@
 {
-    "name": "AI Orchestrator",
+    "name": "Home Assistant AI Control Plane",
     "version": "0.13.6",
     "slug": "ai-orchestrator",
-    "description": "Microsoft Defender-inspired Home Assistant control portal with Gemma 4 E4B profiles, deterministic guarded tools, durable plans, memory, triggers, and streaming",
-    "url": "https://github.com/ITSpecialist111/HASS-AI-Orchestrator",
+    "description": "A guarded AI control plane for Home Assistant with local and cloud models, multi-agent orchestration, RAG, and policy-enforced actions.",
+    "url": "https://github.com/emile-bodin/HASS-AI-Orchestrator",
     "arch": [
         "amd64",
         "armv7",
