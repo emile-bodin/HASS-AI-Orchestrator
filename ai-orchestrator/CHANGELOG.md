@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.14] - 2026-10-19
+### Fixed — Plan, approve, execute
+- Honor saved trigger modes; keep every changing Plan-only proposal visible for review and hold whole Auto-safe plans containing high-impact actions.
+- Repair legacy approval queue callers and execute explicit human approvals from exact persisted payloads through current lifecycle, entity, domain and service checks. Persist source revision, atomic claim and executed/simulated/failed results; stale, paused, expired, rejected and unsupported historical work fails closed.
+- Separate reasoning finality, pending approval, execution failure/partial, simulation and tool acceptance across the run workspace, chat and action center. Show exact action arguments, distinct legacy/whole-plan records, and durable results; retain API errors and disable in-flight approval controls.
+- Prevent external mutations during global simulation; require explicit approved context and locally checkable service policy for real external mutations. Unknown result shapes and requeued actions are not successful execution.
+- Keep atomic plan claims/checkpoints, abort later steps after failure, prevent reject/execution races and never automatically replay uncertain work after restart. No kernel migration or agent activation.
+### Scope and verification
+- Offline full backend: 482 passed, 4 live integration tests deselected; Node: 17 passed; Vite build, bash syntax and whitespace checks passed. A real browser exercised the loopback fixture with actual routes/stores and fake effects only, including exact replay, rejection, simulation, error text and mobile review containment. Browser screenshot capture timed out; DOM/API assertions passed.
+- See APPROVAL_FLOW.md for guarantees and limits. Physical postcondition verification, stale-home-state replanning, live HA/model inference and add-on upgrade validation are not claimed.
+
 ## [0.13.13] - 2026-10-19
 ### Fixed
 - Make ollama_mode and internal_ollama_port optional in the add-on schema so existing saved configurations remain valid after upgrading. New installations retain auto mode and port 11435 defaults; missing fields use the existing runtime defaults.

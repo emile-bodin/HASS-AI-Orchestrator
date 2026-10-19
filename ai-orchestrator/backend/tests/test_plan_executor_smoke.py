@@ -334,15 +334,14 @@ async def test_replay_handles_executor_exception_as_failure():
 
 
 @pytest.mark.asyncio
-async def test_replay_pending_approval_counts_as_ok():
-    """Local MCP returns ``{status: pending_approval}`` for high-impact
-    actions \u2014 that's still a successful planner outcome."""
+async def test_replay_pending_approval_is_not_execution():
+    """A second queue is not successful replay; stop rather than claim success."""
     async def underlying(name, args):
         return {"status": "pending_approval"}
 
     plan = _make_plan(intents=[_make_intent(1, "lock_door", level="high")])
     results = await replay_plan(plan, underlying)
-    assert results[0]["ok"] is True
+    assert results[0]["ok"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +452,7 @@ async def test_plan_mode_records_intents_without_firing(stubbed_agent_factory):
     saved = plan_store.get(plan["id"])
     assert saved is not None
     assert saved.status == "pending"
+    assert saved.requires_approval is True
 
 
 @pytest.mark.asyncio

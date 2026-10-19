@@ -34,9 +34,10 @@ class ApprovalRequest:
         self.impact_level = impact_level
         self.reason = reason
         self.timeout_seconds = timeout_seconds
-        self.status: Literal["pending", "approved", "rejected", "expired"] = "pending"
+        self.status: Literal["pending", "approved", "executing", "executed", "simulated", "failed", "rejected", "expired"] = "pending"
         self.approved_by: Optional[str] = None
         self.approved_at: Optional[datetime] = None
+        self.execution_result = None
 
 
 class ApprovalQueue:
@@ -55,6 +56,7 @@ class ApprovalQueue:
         """
         self.db_path = db_path
         self.timeout_default = timeout_default
+        self.executor = None
         self._init_database()
         
         # Auto-approval rules
@@ -95,6 +97,9 @@ class ApprovalQueue:
             ON approvals(status, timestamp)
         """)
         
+        columns = {row[1] for row in cursor.execute("PRAGMA table_info(approvals)")}
+        if "execution_result" not in columns:
+            cursor.execute("ALTER TABLE approvals ADD COLUMN execution_result TEXT")
         conn.commit()
         conn.close()
     
@@ -163,20 +168,20 @@ class ApprovalQueue:
             logger.info(f"Auto-approved request {request.id}: {action_type}")
         else:
             logger.info(f"Queued for approval {request.id}: {action_type} (impact: {impact_level})")
-            
-            # Notify dashboard
-            await self._notify_approval_required(request)
-            
-            # Start timeout timer
-            asyncio.create_task(self._handle_timeout(request))
-        
-        # Save to database
+
+        # Commit before notifying: an immediate dashboard GET/approval must
+        # observe the record, and no later save may overwrite its claim.
         self._save_request(request)
+        if request.status == "pending":
+            await self._notify_approval_required(request)
+            asyncio.create_task(self._handle_timeout(request))
         
         return request
     
     def _should_auto_approve(self, request: ApprovalRequest) -> bool:
         """Check if request matches auto-approval rules"""
+        if request.impact_level in ("high", "critical"):
+            return False
         agent_rules = self.auto_approval_rules.get(request.agent_id, {})
         
         # Lighting: auto-approve everything
@@ -206,36 +211,45 @@ class ApprovalQueue:
     
     async def approve(self, request_id: str, approved_by: str = "user") -> bool:
         """Approve a pending request"""
-        request = self.get_request(request_id)
-        if not request or request.status != "pending":
+        # One database compare-and-swap, shared across instances/processes.
+        # An interrupted executing row is intentionally never replayed.
+        if not approved_by or approved_by == "system":
             return False
-        
-        request.status = "approved"
-        request.approved_by = approved_by
-        request.approved_at = datetime.now()
-        
-        self._update_request(request)
-        logger.info(f"Request {request_id} approved by {approved_by}")
-        
+        self._expire_pending()
+        target = "executing" if self.executor else "approved"
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "UPDATE approvals SET status=?, approved_by=?, approved_at=? WHERE id=? AND status='pending' AND julianday(timestamp) + timeout_seconds/86400.0 > julianday('now','localtime')",
+                (target, approved_by, datetime.now().isoformat(), request_id),
+            )
+        if not cur.rowcount:
+            return False
+        if self.executor:
+            from plan_executor import _result_ok
+            request = self.get_request(request_id)
+            try:
+                result = await self.executor(request)
+            except Exception as exc:
+                result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "Unrecognized executor result", "result": result}
+            status = ("simulated" if isinstance(result, dict) and result.get("dry_run") else "executed") if _result_ok(result) else "failed"
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("UPDATE approvals SET status=?, execution_result=? WHERE id=? AND status='executing'",
+                             (status, json.dumps(result), request_id))
         return True
     
     async def reject(self, request_id: str, rejected_by: str = "user") -> bool:
         """Reject a pending request"""
-        request = self.get_request(request_id)
-        if not request or request.status != "pending":
-            return False
-        
-        request.status = "rejected"
-        request.approved_by = rejected_by
-        request.approved_at = datetime.now()
-        
-        self._update_request(request)
-        logger.info(f"Request {request_id} rejected by {rejected_by}")
-        
-        return True
+        self._expire_pending()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("UPDATE approvals SET status='rejected', approved_by=?, approved_at=? WHERE id=? AND status='pending'",
+                               (rejected_by, datetime.now().isoformat(), request_id))
+        return bool(cur.rowcount)
     
     def get_pending(self) -> List[ApprovalRequest]:
         """Get all pending approval requests"""
+        self._expire_pending()
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -250,6 +264,19 @@ class ApprovalQueue:
         
         return [self._row_to_request(row) for row in rows]
     
+    def _expire_pending(self):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE approvals SET status='expired' WHERE status='pending' AND julianday(timestamp) + timeout_seconds/86400.0 <= julianday(?)", (datetime.now().isoformat(),))
+
+    def list_requests(self, status="pending"):
+        self._expire_pending()
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("SELECT * FROM approvals WHERE (?='all' OR status=?) ORDER BY timestamp DESC LIMIT 100", (status, status)).fetchall()
+            if status == 'all':
+                active = conn.execute("SELECT * FROM approvals WHERE status IN ('pending','approved','executing')").fetchall()
+                rows = sorted({row[0]: row for row in [*rows, *active]}.values(), key=lambda row: row[1], reverse=True)
+        return [self._row_to_request(row) for row in rows]
+
     def get_request(self, request_id: str) -> Optional[ApprovalRequest]:
         """Get specific approval request"""
         conn = sqlite3.connect(self.db_path)
@@ -266,11 +293,7 @@ class ApprovalQueue:
         await asyncio.sleep(request.timeout_seconds)
         
         # Check if still pending
-        current = self.get_request(request.id)
-        if current and current.status == "pending":
-            current.status = "expired"
-            self._update_request(current)
-            logger.warning(f"Request {request.id} expired after {request.timeout_seconds}s")
+        self._expire_pending()
     
     async def _notify_approval_required(self, request: ApprovalRequest):
         """Notify dashboard of new approval request"""
@@ -339,5 +362,6 @@ class ApprovalQueue:
         request.status = row[7]
         request.approved_by = row[8]
         request.approved_at = datetime.fromisoformat(row[9]) if row[9] else None
+        request.execution_result = json.loads(row[12]) if len(row) > 12 and row[12] else None
         
         return request

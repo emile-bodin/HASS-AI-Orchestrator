@@ -93,7 +93,7 @@ const normaliseTrace = trace => (trace || []).map((step, index) => ({
     status: 'complete',
 }));
 
-export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans }) {
+export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans, plans = [] }) {
     const [goal, setGoal] = useState(initialGoal);
     const [running, setRunning] = useState(false);
     const [result, setResult] = useState(null);
@@ -132,7 +132,8 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
     useEffect(() => () => abortRef.current?.abort(), []);
 
     const profiles = info?.profiles?.length ? info.profiles : FALLBACK_PROFILES;
-    const outcome = getRunOutcome(result);
+    const currentPlan = plans.find(plan => plan.id === result?.plan?.id) || result?.plan;
+    const outcome = getRunOutcome(result ? { ...result, plan: currentPlan } : result);
 
     const appendEvent = event => setEvents(previous => [...previous, {
         id: `${Date.now()}-${previous.length}`,
@@ -227,12 +228,11 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
         try {
             const response = await fetch(`api/reasoning/plans/${planId}/${action}`, { method: 'POST' });
             if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
-            const data = await response.json();
-            setResult(previous => ({
-                ...previous,
-                plan: { ...previous.plan, status: data.status },
-                execution_results: data.execution_results ?? previous.execution_results,
-            }));
+            await response.json();
+            const refreshed = await fetch(`api/reasoning/plans/${planId}`);
+            if (!refreshed.ok) throw new Error(`${refreshed.status}: ${await refreshed.text()}`);
+            const plan = await refreshed.json();
+            setResult(previous => ({ ...previous, plan, execution_results: plan.execution_results }));
             onRunComplete?.();
         } catch (err) {
             setError(err.message);
@@ -339,7 +339,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                         <span className={`cp-run-orb ${running ? 'is-running' : 'is-complete'}`}>
                             {running ? <Loader2 size={19} className="cp-spin" /> : outcome.completed ? <CheckCircle2 size={19} /> : <XCircle size={19} />}
                         </span>
-                        <div><span className="cp-eyebrow">{running ? 'Active run' : 'Latest run'}</span><h2>{phase}</h2></div>
+                        <div><span className="cp-eyebrow">{running ? 'Active run' : 'Latest run'}</span><h2>{!running && result ? outcome.label : phase}</h2></div>
                         <span className="cp-pill">{profile}</span>
                     </div>
                     <ReasoningTrace reasoningEvents={trace} running={running} />
@@ -354,7 +354,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                     </div>
                     <div className="cp-result-metrics">
                         <span><Brain size={15} /><strong>{result.iterations ?? 0}</strong> steps</span>
-                        <span><Wrench size={15} /><strong>{result.successful_tool_calls ?? result.tool_calls ?? 0}</strong> tools succeeded</span>
+                        <span><Wrench size={15} /><strong>{result.successful_tool_calls ?? result.tool_calls ?? 0}</strong> tool results (includes recorded intents)</span>
                         <span><Clock3 size={15} /><strong>{result.duration_ms >= 1000 ? `${(result.duration_ms / 1000).toFixed(1)}s` : `${result.duration_ms || 0}ms`}</strong></span>
                         {(result.usage?.input_tokens || result.usage?.output_tokens) && (
                             <span><Coins size={15} /><strong>{((result.usage.input_tokens || 0) + (result.usage.output_tokens || 0)).toLocaleString()}</strong> tokens</span>
@@ -365,15 +365,17 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                         <p>{result.answer || 'No answer was returned.'}</p>
                     </div>
 
-                    {outcome.completed && result.plan && (
+                    {currentPlan && (
                         <div className="cp-inline-plan">
-                            <span className={`cp-plan-risk ${result.plan.requires_approval ? 'is-warning' : 'is-success'}`}><ShieldCheck size={20} /></span>
+                            <span className={`cp-plan-risk ${outcome.tone}`}><ShieldCheck size={20} /></span>
                             <div>
-                                <strong>{result.plan.requires_approval ? 'Your approval is required' : 'Deterministic plan completed'}</strong>
-                                <p>{result.plan.risk_summary || `${result.plan.mutating_count || 0} exact actions recorded.`}</p>
+                                <strong>{currentPlan.status === 'pending' ? 'Your approval is required' : outcome.label}</strong>
+                                <p>{currentPlan.risk_summary || `${currentPlan.mutating_count || 0} exact actions recorded.`}</p>
                             </div>
-                            <span className="cp-pill">{String(result.plan.status || 'pending').replaceAll('_', ' ')}</span>
-                            {result.plan.status === 'pending' && result.plan.mutating_count > 0 && (
+                            <span className="cp-pill">{String(currentPlan.status || 'pending').replaceAll('_', ' ')}</span>
+                            {currentPlan.intents?.length > 0 && <details open><summary>Exact whole-plan actions</summary><pre>{JSON.stringify(currentPlan.intents.map(({ tool_name, arguments: args }) => ({ tool: tool_name, arguments: args })), null, 2)}</pre><p>Approval authorizes every recorded step in order. Tool acceptance is not verification of the physical home state.</p></details>}
+                            {currentPlan.execution_results?.length > 0 && <details open><summary>Execution results (not physical verification)</summary><pre>{JSON.stringify(currentPlan.execution_results, null, 2)}</pre></details>}
+                            {currentPlan.status === 'pending' && currentPlan.mutating_count > 0 && (
                                 <div className="cp-inline-plan-actions">
                                     <button className="cp-button cp-button--primary" type="button" onClick={() => handlePlanAction('execute')} disabled={!!planAction}>
                                         {planAction === 'execute' ? <Loader2 size={14} className="cp-spin" /> : <ShieldCheck size={14} />} Approve exact plan
@@ -381,7 +383,7 @@ export function ReasoningPanel({ initialGoal = '', onRunComplete, onOpenPlans })
                                     <button className="cp-button cp-button--danger" type="button" onClick={() => handlePlanAction('reject')} disabled={!!planAction}><XCircle size={14} /> Reject</button>
                                 </div>
                             )}
-                            {result.plan.status === 'pending' && <button className="cp-text-button" type="button" onClick={onOpenPlans}>Open detailed review <ArrowRight size={13} /></button>}
+                            {currentPlan.status === 'pending' && <button className="cp-text-button" type="button" onClick={onOpenPlans}>Open detailed review <ArrowRight size={13} /></button>}
                         </div>
                     )}
                 </section>

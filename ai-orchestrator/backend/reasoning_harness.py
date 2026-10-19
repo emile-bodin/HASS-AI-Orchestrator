@@ -1108,6 +1108,13 @@ class ToolRegistry:
                 _invoke_executor(route.executor, name, arguments, context),
                 timeout=max(0.1, semantics.timeout_seconds),
             )
+            if not semantics.read_only:
+                from plan_executor import _result_ok as execution_ok
+                if not execution_ok(result):
+                    out = _normalise_tool_result(result)
+                    out["ok"] = False
+                    out.setdefault("error", "Mutation did not report confirmed acceptance or simulation; not marked executed")
+                    return out
             return _normalise_tool_result(result)
         except asyncio.TimeoutError:
             return _tool_error(

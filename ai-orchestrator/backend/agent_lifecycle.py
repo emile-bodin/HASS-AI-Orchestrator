@@ -5,6 +5,9 @@ plans. Already accepted HA requests cannot be undone. Resume starts a fresh cycl
 """
 import asyncio
 import copy
+import hashlib
+import json
+import uuid
 import os
 import re
 import tempfile
@@ -41,6 +44,12 @@ class AgentLifecycle:
         data = yaml.safe_load(self.path.read_text()) or {}
         data.setdefault('agents', [])
         return data
+
+    def approval_revision(self, agent_id):
+        cfg = next((c for c in self.read()['agents'] if c.get('id') == agent_id), None)
+        if cfg is None:
+            return None
+        return hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()
 
     def write(self, data):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +170,7 @@ class AgentLifecycle:
             interval = new_cfg.get('decision_interval', 120)
             if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 86400:
                 raise ValueError('decision_interval must be 1–86400 seconds')
+            new_cfg['_approval_revision'] = uuid.uuid4().hex
             new_cfg['entities'] = await self.validate_entities(new_cfg.get('entities'), (old_cfg or {}).get('entities', ()))
             # Creation always paused; edits never silently change activation intent.
             new_cfg['paused'] = (old_cfg or {}).get('paused', False) if updating else True
@@ -216,6 +226,7 @@ class AgentLifecycle:
             for cfg in data['agents']:
                 if cfg['id'] == agent_id:
                     cfg['paused'] = True
+                    cfg['_approval_revision'] = uuid.uuid4().hex
             self.write(data)
             await self.stop(agent_id)
             return self.describe(agent_id)
@@ -232,6 +243,7 @@ class AgentLifecycle:
             for cfg in data['agents']:
                 if cfg['id'] == agent_id:
                     cfg['paused'] = False
+                    cfg['_approval_revision'] = uuid.uuid4().hex
             previous = self.read()
             was_paused = agent.paused
             self.write(data)

@@ -151,7 +151,8 @@ class TestMCPServerSmoke:
                 "entity_id": "climate.test",
                 "temperature": 25.0
             },
-            agent_id="test_agent"
+            agent_id="test_agent",
+            context={"approved": True},
         )
         
         assert "error" in result

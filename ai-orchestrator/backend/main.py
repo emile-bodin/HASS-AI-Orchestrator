@@ -299,6 +299,10 @@ class ApprovalRequestResponse(BaseModel):
     reason: str
     status: str
     timeout_seconds: int
+    action_data: Dict = {}
+    execution_result: Optional[Dict] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
 
 
 @asynccontextmanager
@@ -536,6 +540,7 @@ async def lifespan(app: FastAPI):
         rag_manager=rag_manager,
         dry_run=dry_run,
     )
+    approval_queue.executor = mcp_server.execute_approval
     print(f"✓ MCP Server initialized (dry_run={dry_run})")
 
     # 4.5 Phase 9 — export multi-provider LLM credentials into the
@@ -760,10 +765,8 @@ async def lifespan(app: FastAPI):
         try:
             trigger_store = TriggerStore()
 
-            async def _trigger_reasoner_call(goal: str, context: dict):
-                # Triggers always go through plan/auto so the PAE
-                # safety net (Milestone E) gates anything dangerous.
-                return await deep_reasoner.run(goal, context, mode="auto")
+            async def _trigger_reasoner_call(goal: str, context: dict, *, mode: str = "auto"):
+                return await deep_reasoner.run(goal, context, mode=mode)
 
             trigger_registry = TriggerRegistry(
                 store=trigger_store,
@@ -1274,6 +1277,11 @@ async def reasoning_plans(status: Optional[str] = None, limit: int = 50):
         raise HTTPException(status_code=503, detail="Plan store not enabled")
     limit = max(1, min(200, limit))
     plans = deep_reasoner.plan_store.list(status=status, limit=limit)
+    if status is None:
+        # History limits must never hide an older action needing review.
+        by_id = {p.id: p for p in plans}
+        by_id.update({p.id: p for p in deep_reasoner.plan_store.list_active()})
+        plans = sorted(by_id.values(), key=lambda p: p.timestamp, reverse=True)
     return {"count": len(plans), "plans": [p.to_dict() for p in plans]}
 
 
@@ -1512,11 +1520,7 @@ async def get_approvals(status: str = "pending"):
     if not approval_queue:
         return []
     
-    if status == "pending":
-        requests = approval_queue.get_pending()
-    else:
-        # TODO: Add get_by_status to ApprovalQueue if needed
-        requests = approval_queue.get_pending() 
+    requests = approval_queue.list_requests(status)
         
     return [
         ApprovalRequestResponse(
@@ -1527,7 +1531,11 @@ async def get_approvals(status: str = "pending"):
             impact_level=req.impact_level,
             reason=req.reason,
             status=req.status,
-            timeout_seconds=req.timeout_seconds
+            timeout_seconds=req.timeout_seconds,
+            action_data=req.action_data,
+            execution_result=req.execution_result,
+            approved_by=req.approved_by,
+            approved_at=req.approved_at.isoformat() if req.approved_at else None,
         )
         for req in requests
     ]
@@ -1540,6 +1548,8 @@ async def handle_approval(request_id: str, action: str):
         raise HTTPException(status_code=503, detail="Approval queue not initialized")
     
     if action == "approve":
+        if approval_queue.executor is None:
+            raise HTTPException(status_code=503, detail="Approval executor unavailable; nothing executed")
         success = await approval_queue.approve(request_id, approved_by="user")
     elif action == "reject":
         success = await approval_queue.reject(request_id, rejected_by="user")
@@ -1549,7 +1559,9 @@ async def handle_approval(request_id: str, action: str):
     if not success:
         raise HTTPException(status_code=404, detail="Request not found or not pending")
         
-    return {"status": "success", "action": action, "request_id": request_id}
+    current = approval_queue.get_request(request_id)
+    return {"status": "success", "action": action, "request_id": request_id,
+            "execution_status": current.status, "execution_result": current.execution_result}
 
 
 # ---------------------------------------------------------------------------

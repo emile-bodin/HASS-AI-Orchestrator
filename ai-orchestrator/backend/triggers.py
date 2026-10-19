@@ -11,8 +11,8 @@ Two trigger families:
 
 When a trigger fires it invokes a :class:`DeepReasoningAgent`
 callback with a goal templated from the trigger config. Triggers
-*always* run in ``mode="auto"``, so anything dangerous lands in the
-PAE approval queue from Milestone E rather than firing unattended.
+honor their saved ``plan`` or ``auto`` mode; dangerous auto plans land
+in the PAE approval queue rather than firing unattended.
 
 The registry persists triggers + recent fire history in SQLite at
 ``/data/triggers.db`` (or a workspace-local fallback).
@@ -26,6 +26,7 @@ is what every realistic home-automation schedule needs.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import re
@@ -358,7 +359,8 @@ ReasonerCallback = Callable[[str, Dict[str, Any]], Awaitable[Any]]
 
 The registry calls this with the templated goal whenever a trigger
 fires. The callback should run the deep reasoner in
-``mode="auto"`` and return an object with ``run_id`` and ``plan``
+the supplied ``mode`` (or ``context["trigger_mode"]`` for old callbacks)
+and return an object with ``run_id`` and ``plan``
 attributes (or a dict with the same keys).
 """
 
@@ -651,15 +653,22 @@ class TriggerRegistry:
             status="submitted",
         )
         try:
-            result = await self._reason(goal, context)
+            # Keep two-argument integrations compatible, with a reserved mode
+            # in their context; modern callbacks receive the explicit mode.
+            context["trigger_mode"] = spec.mode
+            params = inspect.signature(self._reason).parameters
+            accepts_mode = "mode" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+            result = (await self._reason(goal, context, mode=spec.mode) if accepts_mode
+                      else await self._reason(goal, context))
             fire.run_id = _attr(result, "run_id")
             plan = _attr(result, "plan")
             if isinstance(plan, dict):
                 fire.plan_id = plan.get("id")
-                if plan.get("requires_approval"):
+                status = plan.get("status")
+                if status in ("pending", "approved") or (status is None and plan.get("requires_approval")):
                     fire.status = "awaiting_approval"
-                elif plan.get("status") == "executed":
-                    fire.status = "executed"
+                elif status in ("executed", "simulated", "executed_with_errors", "executing"):
+                    fire.status = status
                 else:
                     fire.status = "completed"
             else:

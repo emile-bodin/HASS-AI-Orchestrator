@@ -19,6 +19,7 @@ agent or the LLM.
 from __future__ import annotations
 
 import json
+import copy
 import hashlib
 import inspect
 import logging
@@ -280,7 +281,7 @@ class DryRunInterceptor:
         intent = RecordedIntent(
             sequence=len(self.intents) + 1,
             tool_name=name,
-            arguments=dict(arguments),
+            arguments=copy.deepcopy(arguments),
             impact_level=cls.impact_level,
             classification_reason=cls.reason,
             simulated_result=dict(self._synthetic),
@@ -379,6 +380,11 @@ class PlanStore:
             rows = c.execute(q, args).fetchall()
         return [_row_to_plan(r) for r in rows]
 
+    def list_active(self) -> List[PlanProposal]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM plans WHERE status IN ('pending','approved','executing') ORDER BY timestamp DESC").fetchall()
+        return [_row_to_plan(row) for row in rows]
+
     def update_status(
         self,
         plan_id: str,
@@ -391,6 +397,7 @@ class PlanStore:
             cur = c.execute(
                 """UPDATE plans
                    SET status = ?,
+                       requires_approval = 0,
                        execution_results_json = COALESCE(?, execution_results_json),
                        executed_at = COALESCE(?, executed_at)
                    WHERE id = ?""",
@@ -403,6 +410,11 @@ class PlanStore:
             )
         return cur.rowcount > 0
 
+    def reject_pending(self, plan_id: str) -> bool:
+        with self._conn() as c:
+            cur = c.execute("UPDATE plans SET status='rejected', requires_approval=0 WHERE id=? AND status='pending'", (plan_id,))
+        return bool(cur.rowcount)
+
     def claim_for_execution(self, plan_id: str) -> str:
         """Atomically claim a pending plan for one executor.
 
@@ -412,7 +424,7 @@ class PlanStore:
         """
         with self._conn() as c:
             cur = c.execute(
-                """UPDATE plans SET status = 'executing'
+                """UPDATE plans SET status = 'executing', requires_approval=0
                    WHERE id = ? AND status IN ('pending', 'approved')""",
                 (plan_id,),
             )
@@ -424,7 +436,7 @@ class PlanStore:
         status = str(row["status"])
         if status == "executing":
             return "already_executing"
-        if status in ("executed", "executed_with_errors"):
+        if status in ("executed", "simulated", "executed_with_errors"):
             return "already_executed"
         if status == "rejected":
             return "rejected"
@@ -508,7 +520,7 @@ async def replay_plan(
             result = await _call_with_context(
                 underlying_call,
                 intent.tool_name,
-                intent.arguments,
+                copy.deepcopy(intent.arguments),
                 execution_context,
             )
             ok = _result_ok(result)
@@ -537,18 +549,25 @@ async def replay_plan(
     return out
 
 
+def execution_status(results: List[Dict[str, Any]]) -> str:
+    if not all(row.get("ok") for row in results):
+        return "executed_with_errors"
+    if any(isinstance(row.get("result"), dict) and row["result"].get("dry_run") for row in results):
+        return "simulated"
+    return "executed"
+
+
 def _result_ok(result: Any) -> bool:
-    if not isinstance(result, dict):
-        return True  # unknown shape, assume success
-    if "ok" in result:
-        return bool(result.get("ok"))
-    if "error" in result:
+    if not isinstance(result, dict) or result.get("error") or result.get("isError") or result.get("is_error"):
         return False
-    if result.get("status") == "pending_approval":
-        # The local MCP layer queues high-impact actions itself; that's
-        # still a "successful" outcome from the planner's point of view.
-        return True
-    return True
+    if result.get("status") in ("pending_approval", "queued_for_approval") or result.get("requires_approval"):
+        return False
+    if result.get("executed") is False and not result.get("dry_run"):
+        return False
+    if result.get("ok") is False or result.get("success") is False:
+        return False
+    return (result.get("ok") is True or result.get("success") is True or
+            result.get("executed") is True or result.get("dry_run") is True)
 
 
 # ---------------------------------------------------------------------------

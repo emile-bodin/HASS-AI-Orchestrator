@@ -341,6 +341,28 @@ class DeepReasoningAgent:
         context: Optional[ToolExecutionContext] = None,
     ) -> Dict[str, Any]:
         assert self.external_mcp is not None
+        semantics = self._external_semantics(name, arguments)
+        if not semantics.read_only:
+            approved = context.get("approved", False) if isinstance(context, dict) else getattr(context, "approved", False)
+            if not approved:
+                return {"ok": False, "executed": False, "requires_approval": True,
+                        "error": "External mutations require explicit plan approval"}
+            # Generic HA service envelopes can be checked locally. Unknown
+            # remote mutation schemas cannot prove local domain/service scope.
+            validator = getattr(self.local_mcp, "validate_tool_call", None)
+            service_envelope = bool(arguments.get("domain") and arguments.get("service"))
+            if service_envelope and validator:
+                error = validator("call_ha_service", arguments, context)
+                if error:
+                    return error
+            if not getattr(self.local_mcp, "dry_run", True) and not (service_envelope and validator):
+                return {"ok": False, "executed": False, "error_code": "unsupported_external_policy",
+                        "error": "External mutation schema cannot be checked against local service policy"}
+            # The remote transport has no trusted dry-run contract. Never send
+            # a mutation during global simulation; simulate the recorded intent.
+            if getattr(self.local_mcp, "dry_run", True):
+                return {"ok": True, "dry_run": True, "executed": False,
+                        "note": "External action simulated locally; remote tool was not invoked"}
         return await self.external_mcp.call_tool(name, arguments)
 
     async def _safe_native_service_call(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -359,6 +381,8 @@ class DeepReasoningAgent:
 
     def _local_semantics(self, name: str, arguments: Dict[str, Any]) -> ToolSemantics:
         cls = self.tool_classifier.classify(name, arguments)
+        gate = getattr(self.local_mcp, "requires_approval", None)
+        impact = "high" if gate and gate(name, arguments) else cls.impact_level
         lowered = name.lower()
         idempotent_mutation = (
             any(token in lowered for token in (
@@ -370,10 +394,10 @@ class DeepReasoningAgent:
         )
         return ToolSemantics(
             read_only=not cls.is_mutating,
-            destructive=cls.impact_level == "high",
+            destructive=impact == "high",
             idempotent=(not cls.is_mutating) or idempotent_mutation,
             parallel_safe=not cls.is_mutating,
-            impact_level=cls.impact_level,
+            impact_level=impact,
             timeout_seconds=self.tool_timeout_seconds,
             max_retries=2 if not cls.is_mutating else 0,
         )
@@ -528,11 +552,8 @@ class DeepReasoningAgent:
                         )
                         plan.execution_results = execution_results
                         plan.executed_at = datetime.now(timezone.utc).isoformat()
-                        plan.status = (
-                            "executed"
-                            if all(row.get("ok") for row in execution_results)
-                            else "executed_with_errors"
-                        )
+                        from plan_executor import execution_status
+                        plan.status = execution_status(execution_results)
                         executed_inline = True
                         if self.plan_store is not None:
                             self.plan_store.update_status(
@@ -750,7 +771,7 @@ class DeepReasoningAgent:
             backend=getattr(self.llm, "name", None),
             timestamp=datetime.now(timezone.utc).isoformat(),
             status="pending",
-            requires_approval=any(i.impact_level == "high" for i in intents),
+            requires_approval=bool(intents),
             risk_summary=summarise_risk(intents),
         )
 
@@ -765,7 +786,7 @@ class DeepReasoningAgent:
         plan = self.plan_store.get(plan_id)
         if plan is None:
             return None
-        if plan.status in ("executed", "executed_with_errors"):
+        if plan.status in ("executed", "simulated", "executed_with_errors"):
             return {
                 "plan_id": plan.id,
                 "status": "already_executed",
@@ -811,8 +832,8 @@ class DeepReasoningAgent:
             on_step=checkpoint,
         )
         executed_at = datetime.now(timezone.utc).isoformat()
-        all_ok = all(r.get("ok") for r in results)
-        new_status = "executed" if all_ok else "executed_with_errors"
+        from plan_executor import execution_status
+        new_status = execution_status(results)
         self.plan_store.update_status(
             plan.id,
             new_status,
@@ -829,7 +850,7 @@ class DeepReasoningAgent:
     async def reject_plan(self, plan_id: str) -> bool:
         if self.plan_store is None:
             return False
-        return self.plan_store.update_status(plan_id, "rejected")
+        return self.plan_store.reject_pending(plan_id)
 
     def _persist(self, goal: str, result: HarnessResult, run_id: Optional[str] = None) -> None:
         """Save reasoning run to /data/decisions/deep_reasoner/ for the dashboard."""

@@ -363,12 +363,65 @@ class MCPServer:
             generation = lifecycle.generations.get(agent_id, 0)
             async with lifecycle.execution_locks.setdefault(agent_id, asyncio.Lock()):
                 error = await lifecycle.check_execution(agent_id, parameters, tool_name)
+                revision = _context_value(context, "source_revision")
+                if revision is not None and revision != lifecycle.approval_revision(agent_id):
+                    error = 'Approval source configuration changed; request a fresh decision'
                 if generation != lifecycle.generations.get(agent_id, 0):
                     error = 'Agent work crossed a pause/edit/delete boundary; discarded'
                 if error:
                     return {'ok': False, 'executed': False, 'error_code': 'agent_inactive', 'error': error}
                 return await self._execute_tool(tool_name, parameters, agent_id, context)
         return await self._execute_tool(tool_name, parameters, agent_id, context)
+
+    def service_target(self, tool_name, parameters):
+        if tool_name == 'call_ha_service':
+            return parameters
+        services = {
+            'turn_on_light': ('light', 'turn_on'), 'turn_off_light': ('light', 'turn_off'),
+            'set_brightness': ('light', 'turn_on'), 'set_color_temp': ('light', 'turn_on'),
+            'set_temperature': ('climate', 'set_temperature'), 'set_hvac_mode': ('climate', 'set_hvac_mode'),
+            'lock_door': ('lock', 'lock'), 'unlock_door': ('lock', 'unlock'),
+            'set_alarm_state': ('alarm_control_panel', {'armed_home': 'alarm_arm_home', 'armed_away': 'alarm_arm_away', 'disarmed': 'alarm_disarm'}.get(parameters.get('state'), 'invalid')),
+            'enable_camera': ('camera', 'enable_motion_detection' if parameters.get('motion_detection', True) else 'turn_on'),
+        }
+        if tool_name not in services:
+            return None
+        domain, service = services[tool_name]
+        data = {k: v for k, v in parameters.items() if k != 'entity_id'} if tool_name == 'set_temperature' else {}
+        return {'domain': domain, 'service': service, 'entity_id': parameters.get('entity_id'), 'service_data': data}
+
+    def requires_approval(self, tool_name, parameters):
+        from plan_executor import ToolClassifier
+        target = self.service_target(tool_name, parameters) or {}
+        service = f"{target.get('domain')}.{target.get('service')}"
+        return (ToolClassifier().classify(tool_name, parameters).impact_level == 'high' or
+                service in get_env_list('HIGH_IMPACT_SERVICES', DEFAULT_HIGH_IMPACT_SERVICES))
+
+    async def queue_action(self, agent_id, tool_name, parameters, impact_level="high", reason="Human review required"):
+        lifecycle = getattr(self, 'agent_lifecycle', None)
+        revision = lifecycle.approval_revision(agent_id) if lifecycle else None
+        return await self.approval_queue.add_request(
+            agent_id=agent_id, action_type=tool_name,
+            action_data={"schema_version": 1, "tool": tool_name, "parameters": parameters,
+                         "source_revision": revision},
+            impact_level=impact_level, reason=reason,
+        )
+
+    async def execute_approval(self, request):
+        # Only our canonical server-recorded envelope is replayable. Old rows,
+        # unmanaged sources, and removed agents cannot acquire authority.
+        data = request.action_data
+        lifecycle = getattr(self, 'agent_lifecycle', None)
+        if (request.status != 'executing' or not request.approved_by or request.approved_by == 'system' or
+                not isinstance(data, dict) or data.get('schema_version') != 1 or
+                not isinstance(data.get('parameters'), dict) or not data.get('source_revision') or
+                not lifecycle or request.agent_id not in lifecycle.agents or
+                data['source_revision'] != lifecycle.approval_revision(request.agent_id) or
+                data.get('tool') != request.action_type):
+            return {"ok": False, "executed": False, "error": "Unsupported or stale approval source; request a fresh decision"}
+        return await self.execute_tool(data['tool'], data['parameters'], request.agent_id,
+                                       context={"approved": True, "source_revision": data['source_revision'],
+                                                "approval_id": request.id})
 
     async def _execute_tool(self, tool_name, parameters, agent_id, context=None):
         if tool_name not in self.tools:
@@ -379,7 +432,14 @@ class MCPServer:
             return validation_error
         
         tool = self.tools[tool_name]
-        
+        high = self.requires_approval(tool_name, parameters)
+        if high and not self.dry_run and not _context_value(context, 'approved', False):
+            if not self.approval_queue:
+                return {"ok": False, "executed": False, "requires_approval": True, "error": "Human approval queue unavailable", "message": "Action requires human approval; queue unavailable"}
+            request = await self.queue_action(agent_id, tool_name, parameters)
+            return {"ok": False, "executed": False, "status": "queued_for_approval", "request_id": request.id,
+                    "requires_approval": True, "message": "Action requires manual approval; waiting for explicit human approval"}
+
         # Log tool call
         log_entry = {
             "timestamp": datetime.now().isoformat(),
@@ -485,9 +545,8 @@ class MCPServer:
                 "error_code": "invalid_entity_domain",
             }
 
-        if tool_name == "call_ha_service":
-            return self._validate_service_request(parameters)
-        return None
+        target = self.service_target(tool_name, parameters)
+        return self._validate_service_request(target) if target is not None else None
     
     def _save_log(self, agent_id: str, log_entry: Dict):
         """Save tool execution log to file"""
@@ -902,38 +961,12 @@ class MCPServer:
         approved = bool(_context_value(context, "approved", False))
         high_impact_services = get_env_list("HIGH_IMPACT_SERVICES", DEFAULT_HIGH_IMPACT_SERVICES)
         if service_full_name in high_impact_services and not approved:
-            if self.approval_queue:
-                # Create a description for the user
-                reason = f"Agent requested high-impact service: {service_full_name} on {entity_id}"
-                if service_data:
-                    reason += f" with data: {json.dumps(service_data)}"
-
-                await self.approval_queue.add_request(
-                    agent_id="mcp_security_guard",
-                    action_type=service_full_name,
-                    action_data={
-                        "domain": domain,
-                        "service": service,
-                        "entity_id": entity_id,
-                        "service_data": service_data
-                    },
-                    impact_level="high",
-                    reason=reason
-                )
-                return {
-                    "ok": True,
-                    "action": "call_ha_service",
-                    "status": "queued_for_approval",
-                    "message": f"Service {service_full_name} requires manual approval as it is high-impact."
-                }
-            else:
-                return {
-                    "ok": False,
-                    "error": f"Service {service_full_name} requires approval, but approval queue is not available.",
-                    "requires_approval": True,
-                    "message": f"Service {service_full_name} requires human approval.",
-                    "executed": False
-                }
+            # Public execute_tool queues before handler dispatch, retaining
+            # source identity. A private-handler bypass must not create an
+            # unexecutable security-guard row or report successful execution.
+            return {"ok": False, "executed": False, "requires_approval": True,
+                    "error": "Use the source-aware execute_tool approval path",
+                    "message": f"Service {service_full_name} requires human approval."}
 
         try:
             # Fix: Pass entity_id and service_data (kwargs) separately

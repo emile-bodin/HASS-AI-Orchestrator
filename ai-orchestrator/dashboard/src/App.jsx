@@ -25,6 +25,7 @@ function App() {
     const [dailyStats, setDailyStats] = useState([])
     const [performance, setPerformance] = useState({})
     const [plans, setPlans] = useState([])
+    const [approvals, setApprovals] = useState([])
     const [plansLoading, setPlansLoading] = useState(true)
     const [plansError, setPlansError] = useState(null)
     const [reasoningInfo, setReasoningInfo] = useState(null)
@@ -81,8 +82,9 @@ function App() {
         setPlansLoading(true)
         setPlansError(null)
         try {
-            const data = await requestJson('api/reasoning/plans?limit=100')
+            const [data, legacy] = await Promise.all([requestJson('api/reasoning/plans?limit=100'), requestJson('api/approvals?status=all')])
             setPlans(Array.isArray(data.plans) ? data.plans : [])
+            setApprovals(Array.isArray(legacy) ? legacy : [])
         } catch (error) {
             setPlansError(`Plan queue unavailable: ${error.message}`)
         } finally {
@@ -189,8 +191,8 @@ function App() {
     }, [fetchHealth])
 
     const pendingPlans = useMemo(
-        () => plans.filter(plan => ['pending', 'approved', 'executing'].includes(plan.status)),
-        [plans],
+        () => [...plans, ...approvals].filter(plan => ['pending', 'approved', 'executing'].includes(plan.status)),
+        [plans, approvals],
     )
 
     const startGoal = goal => {
@@ -213,6 +215,7 @@ function App() {
             case 'run':
                 return <ReasoningPanel
                     initialGoal={draftGoal}
+                    plans={plans}
                     onRunComplete={() => {
                         fetchPlans()
                         fetchDecisions()
@@ -223,6 +226,7 @@ function App() {
             case 'review':
                 return <PlansPanel
                     plans={plans}
+                    approvals={approvals}
                     loading={plansLoading}
                     error={plansError}
                     onRefresh={fetchPlans}
@@ -260,7 +264,7 @@ function App() {
                     {renderContent()}
                 </Suspense>
             </WorkspaceErrorBoundary>
-            <ChatAssistant onOpenPlans={() => navigate('review')} />
+            <ChatAssistant plans={plans} onRunComplete={fetchPlans} onOpenPlans={() => navigate('review')} />
         </Layout>
     )
 }

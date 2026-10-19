@@ -490,7 +490,9 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         for decision in state["decisions"]:
             source = decision.get('agent_id')
             agent = self.agents.get(source)
-            if not agent or getattr(agent, 'paused', False):
+            lifecycle = getattr(self.mcp_server, 'agent_lifecycle', None)
+            if (not agent or getattr(agent, 'paused', False) or
+                    (lifecycle and decision.get('_generation', 0) != lifecycle.generations.get(source, 0))):
                 continue
             for original in decision["actions"]:
                 action = {**original, '_source_agent': source, '_generation': decision.get('_generation', 0)}
@@ -503,7 +505,10 @@ Only create tasks if action is needed. Return empty tasks array if everything is
         if requires_approval:
             # Queue for approval
             for action in requires_approval:
-                await self.approval_queue.add_request(action)
+                await self.mcp_server.queue_action(
+                    action['_source_agent'], action['tool'], action['parameters'],
+                    impact_level="high", reason="Specialist requested a high-impact action",
+                )
             
             state["approval_required"] = True
             logger.info(f"{len(requires_approval)} actions queued for approval")
