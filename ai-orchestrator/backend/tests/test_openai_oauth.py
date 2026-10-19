@@ -17,6 +17,7 @@ def test_authorization_url_defaults_to_openai_loopback_callback(tmp_path):
     result = store.begin_authorization("")
     query = parse_qs(urlparse(result["authorization_url"]).query)
     assert query["redirect_uri"] == ["http://127.0.0.1:1455/auth/callback"]
+    assert query["ext_agent_host_id"][0].startswith("urn:uuid:")
 
 
 def test_authorization_url_contains_pkce_state_and_chatgpt_plan_scopes(tmp_path):
