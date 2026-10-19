@@ -358,9 +358,10 @@ async def lifespan(app: FastAPI):
         try:
             with open(options_path, "r") as f:
                 opts = json.load(f)
-                dry_run = opts.get("dry_run_mode", True)
+                from runtime_config import default_true_option
+                dry_run = default_true_option(opts, "dry_run_mode")
                 disable_telemetry = opts.get("disable_telemetry", True)
-                enable_rag_opt = bool(opts.get("enable_rag", True))
+                enable_rag_opt = default_true_option(opts, "enable_rag")
                 ha_access_token_opt = opts.get("ha_access_token", "").strip()
                 ha_url_opt = opts.get("ha_url", "").strip()
                 
@@ -560,6 +561,10 @@ async def lifespan(app: FastAPI):
     for _env_key, _env_val in _llm_env_map.items():
         if _env_val:
             os.environ[_env_key] = _env_val
+    from llm_providers import effective_chat_model, resolve_provider_name
+    if resolve_provider_name() == "openai_oauth":
+        for role in ("ORCHESTRATOR_MODEL", "SMART_MODEL", "FAST_MODEL", "DEEP_REASONING_MODEL"):
+            os.environ[role] = effective_chat_model(os.getenv(role, "gemma4:e4b"))
     if _llm_env_map.get("LLM_PROVIDER"):
         print(f"✓ LLM provider: {_llm_env_map['LLM_PROVIDER']}")
     
@@ -671,7 +676,7 @@ async def lifespan(app: FastAPI):
     # 9. Initialize External MCP client + Deep Reasoning Agent (Phase 7)
     mcp_url = locals().get("mcp_server_url_opt", "") or os.getenv("MCP_SERVER_URL", "")
     mcp_token = locals().get("mcp_server_token_opt", "") or os.getenv("MCP_SERVER_TOKEN", "")
-    deep_model = locals().get("deep_reasoning_model_opt", "") or os.getenv("DEEP_REASONING_MODEL", "gemma4:e4b")
+    deep_model = effective_chat_model(locals().get("deep_reasoning_model_opt", "") or os.getenv("DEEP_REASONING_MODEL", "gemma4:e4b"))
     anthropic_key = locals().get("anthropic_api_key_opt", "") or os.getenv("ANTHROPIC_API_KEY", "")
     anthropic_model = locals().get("anthropic_model_opt", "") or os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")
     max_iter = int(locals().get("deep_reasoning_max_iter_opt", 12) or 12)
@@ -743,7 +748,8 @@ async def lifespan(app: FastAPI):
         )
         app.state.deep_reasoner = deep_reasoner
         orchestrator.deep_reasoner = deep_reasoner
-        print(f"✓ Deep Reasoning Agent initialized (backend={deep_reasoner.llm.name}, model={deep_model}, profile={deep_reasoner.default_profile}, tools={len(deep_reasoner.registry.names())}, memory={'on' if memory_store and memory_store.enabled else 'off'}, plans={'on' if plan_store else 'off'}, mode={deep_reasoner.default_mode})")
+        actual_deep_model = getattr(deep_reasoner.llm, "model", None) or getattr(deep_reasoner.llm, "_model", None) or deep_model
+        print(f"✓ Deep Reasoning Agent initialized (backend={deep_reasoner.llm.name}, model={actual_deep_model}, profile={deep_reasoner.default_profile}, tools={len(deep_reasoner.registry.names())}, memory={'on' if memory_store and memory_store.enabled else 'off'}, plans={'on' if plan_store else 'off'}, mode={deep_reasoner.default_mode})")
     except Exception as e:
         print(f"⚠️ Failed to initialize Deep Reasoning Agent: {e}")
 

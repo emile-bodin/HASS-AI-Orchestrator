@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.11] - 2026-10-19
+### Fixed
+- Recover only finalized streamed output items when OAuth completion has empty/null output; preserve populated snapshots, reasoning, tools, usage, and continuation. Incomplete/failed/missing completion and invalid tool arguments still fail safely.
+- Route orchestrator/smart/fast/deep/dashboard generation to the configured OAuth `openai_model`, including legacy paths and startup logs, without rewriting saved Home Assistant options or falling back to Ollama generation.
+- Honor explicit false for `enable_rag` and `dry_run_mode` at startup; missing/null still default to true. Enabled RAG continues to require local Ollama embeddings independently of cloud generation.
+
+### Verification
+- Tested with the real SDK against local SSE transports and actual startup bash/jq expressions. No live OAuth/Home Assistant inference is claimed; prior streamed items in the affected deployment have not been captured.
+
 ## [0.13.10] - 2026-10-19
 ### Fixed — Empty agent outcomes
 - Empty, reasoning-only, refusal, commentary-only, incomplete, and unsupported Responses output no longer completes a goal successfully. Error diagnostics contain only allowlisted shape labels and counts, never model text, arguments, tokens, or encrypted reasoning.

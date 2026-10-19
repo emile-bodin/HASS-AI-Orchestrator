@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 
 import ollama
 from ha_client import HAWebSocketClient
-from llm_providers import make_chat_provider
+from llm_providers import make_chat_provider, effective_chat_model
 from mcp_server import MCPServer
 
 
@@ -57,7 +57,7 @@ class BaseAgent(ABC):
 
         self.skills_path = Path(skills_path)
         self.rag_manager = rag_manager
-        self.model_name = model_name
+        self.model_name = effective_chat_model(model_name)
         self.decision_interval = decision_interval
         self.broadcast_func = broadcast_func
         self.status = "initializing"
@@ -156,10 +156,11 @@ class BaseAgent(ABC):
         """
         try:
             provider_name = getattr(self.llm_provider, "name", "ollama")
-            selected_model = self.model_name
+            selected_model = effective_chat_model(self.model_name, provider_name)
             if provider_name != "ollama":
                 selected_model = {
                     "openai": os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
+                    "openai_oauth": effective_chat_model(self.model_name, provider_name),
                     "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8"),
                     "github": os.getenv("GITHUB_MODEL", "gpt-4o-mini"),
                     "foundry": os.getenv("FOUNDRY_MODEL", ""),

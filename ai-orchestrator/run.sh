@@ -15,7 +15,7 @@ fi
 
 # Extract configuration values
 export OLLAMA_HOST=$(jq -r '.ollama_host // "http://localhost:11434"' $CONFIG_PATH)
-export DRY_RUN_MODE=$(jq -r '.dry_run_mode // true' $CONFIG_PATH)
+export DRY_RUN_MODE=$(jq -r 'if .dry_run_mode == null then true else .dry_run_mode end' $CONFIG_PATH)
 export LOG_LEVEL=$(jq -r '.log_level // "info"' $CONFIG_PATH | tr '[:lower:]' '[:upper:]')
 export ORCHESTRATOR_MODEL=$(jq -r '.orchestrator_model // "gemma4:e4b"' $CONFIG_PATH)
 export SMART_MODEL=$(jq -r '.smart_model // "gemma4:e4b"' $CONFIG_PATH)
@@ -24,11 +24,18 @@ export DEEP_REASONING_MODEL=$(jq -r '.deep_reasoning_model // "gemma4:e4b"' $CON
 export REASONING_DEFAULT_PROFILE=$(jq -r '.reasoning_default_profile // "balanced"' $CONFIG_PATH)
 export DECISION_INTERVAL=$(jq -r '.decision_interval // 120' $CONFIG_PATH)
 export ENABLE_GPU=$(jq -r '.enable_gpu // false' $CONFIG_PATH)
-export ENABLE_RAG=$(jq -r '.enable_rag // true' $CONFIG_PATH)
+export ENABLE_RAG=$(jq -r 'if .enable_rag == null then true else .enable_rag end' $CONFIG_PATH)
 export LLM_PROVIDER=$(jq -r '.llm_provider // "ollama"' $CONFIG_PATH)
 export OPENAI_API_KEY=$(jq -r '.openai_api_key // ""' $CONFIG_PATH)
 export OPENAI_BASE_URL=$(jq -r '.openai_base_url // ""' $CONFIG_PATH)
 export OPENAI_MODEL=$(jq -r '.openai_model // "gpt-5.6-terra"' $CONFIG_PATH)
+# Effective generation roles only; leave saved local models and RAG untouched.
+if [ "$LLM_PROVIDER" = "openai_oauth" ]; then
+    export ORCHESTRATOR_MODEL="$OPENAI_MODEL"
+    export SMART_MODEL="$OPENAI_MODEL"
+    export FAST_MODEL="$OPENAI_MODEL"
+    export DEEP_REASONING_MODEL="$OPENAI_MODEL"
+fi
 export OPENAI_OAUTH_REDIRECT_URI=$(jq -r '.openai_oauth_redirect_uri // ""' $CONFIG_PATH)
 export OPENAI_OAUTH_AGENT_NAME=$(jq -r '.openai_oauth_agent_name // "HASS-AI-Orchestrator"' $CONFIG_PATH)
 export ANTHROPIC_API_KEY=$(jq -r '.anthropic_api_key // ""' $CONFIG_PATH)
@@ -70,6 +77,9 @@ echo "  Decision Interval: ${DECISION_INTERVAL}s"
 echo "  GPU Enabled: $ENABLE_GPU"
 echo "  RAG Enabled: $ENABLE_RAG"
 echo "  LLM Provider: $LLM_PROVIDER"
+if [ "$ENABLE_RAG" = "true" ] && [ "$LLM_PROVIDER" != "ollama" ]; then
+    echo "  RAG uses local Ollama embeddings independently of cloud generation"
+fi
 if [ -n "$HA_ACCESS_TOKEN" ]; then
     echo "  HA Access Token: PROVIDED (Length: ${#HA_ACCESS_TOKEN})"
     if [ -z "$HA_URL" ]; then

@@ -1,5 +1,6 @@
 """Validate Responses snapshots and extract guarded text/function output."""
 from collections.abc import Mapping
+from copy import copy, deepcopy
 import json
 from typing import Any
 
@@ -12,9 +13,8 @@ def response_value(value: Any, key: str, default: Any = None) -> Any:
 def completed_response(event: Any) -> Any:
     """Return the completed snapshot, never partial output or a failed response.
 
-    Responses SSE includes the full output and usage in response.completed;
-    using that snapshot preserves function arguments and encrypted reasoning
-    without reconstructing them from deltas. Do not include provider payloads
+    Validate either the terminal snapshot or one repaired from finalized items;
+    never reconstruct function arguments or reasoning from deltas. No payloads
     in exceptions: they can contain private conversation/reasoning content.
     """
     event_type = response_value(event, "type")
@@ -31,6 +31,80 @@ def completed_response(event: Any) -> Any:
     if not isinstance(response_value(response, "output"), list):
         raise RuntimeError("OpenAI OAuth stream has invalid response.completed output")
     return response
+
+
+class ResponseStreamAccumulator:
+    """Per-request finalized items shared by sync and async OAuth consumers.
+
+    SDK 2.45's stream helper does not recover done items. Use only actual done
+    payloads, never assembled deltas, and retain terminal metadata/SDK models.
+    A populated terminal snapshot remains authoritative.
+    """
+
+    def __init__(self) -> None:
+        self._completed: dict[int, Any] = {}
+        self._seen: set[int] = set()
+        self._added: dict[int, Any] = {}
+        self._response_id: Any = None
+
+    def feed(self, event: Any) -> Any:
+        event_type = response_value(event, "type")
+        if event_type in {"response.created", "response.queued", "response.in_progress", "response.completed"}:
+            identity = response_value(response_value(event, "response"), "id")
+            if self._response_id is not None and identity != self._response_id:
+                raise RuntimeError("OpenAI OAuth stream response identity changed")
+            self._response_id = identity
+        index = response_value(event, "output_index")
+        if index is not None:
+            if type(index) is not int or index < 0:
+                raise RuntimeError("OpenAI OAuth stream has invalid output index")
+            self._seen.add(index)
+        if event_type == "response.output_item.added":
+            self._added[index] = deepcopy(response_value(event, "item"))
+        if event_type == "response.output_item.done":
+            if index is None:
+                raise RuntimeError("OpenAI OAuth stream has invalid output index")
+            item = response_value(event, "item")
+            if not isinstance(response_value(item, "type"), str):
+                raise RuntimeError("OpenAI OAuth stream has invalid completed item")
+            previous = self._completed.get(index)
+            added = self._added.get(index)
+            if previous is not None and previous != item:
+                raise RuntimeError("OpenAI OAuth stream has conflicting completed items")
+            if added is not None and any(
+                response_value(added, key) is not None and
+                response_value(added, key) != response_value(item, key)
+                for key in ("type", "id", "call_id")
+            ):
+                raise RuntimeError("OpenAI OAuth stream completed item identity changed")
+            for position, other in self._completed.items():
+                if position != index and any(
+                    response_value(item, key) is not None and
+                    response_value(item, key) == response_value(other, key)
+                    for key in ("id", "call_id")
+                ):
+                    raise RuntimeError("OpenAI OAuth stream has duplicate output identity")
+            self._completed[index] = deepcopy(item)
+            return None
+        if event_type == "response.completed":
+            response = response_value(event, "response")
+            if response_value(response, "status") != "completed":
+                return completed_response(event)  # Reuse safe terminal validation.
+            output = response_value(response, "output")
+            if output is None or output == []:
+                if self._seen - self._completed.keys():
+                    raise RuntimeError("OpenAI OAuth stream has unfinished output items")
+            if (output is None or output == []) and self._completed:
+                response = dict(response) if isinstance(response, Mapping) else copy(response)
+                items = [self._completed[index] for index in sorted(self._completed)]
+                if any(response_value(item, "status") not in (None, "completed") for item in items):
+                    raise RuntimeError("OpenAI OAuth stream has incomplete completed items")
+                if isinstance(response, dict):
+                    response["output"] = items
+                else:
+                    response.output = items
+                return completed_response({"type": "response.completed", "response": response})
+        return completed_response(event)
 
 
 # Only allowlisted protocol labels and counts cross the diagnostic boundary.
@@ -96,6 +170,15 @@ def response_output(response: Any, *, allow_tools: bool = False) -> tuple[str, l
             if not all(isinstance(response_value(item, key), str) and response_value(item, key).strip()
                        for key in ("name", "call_id")):
                 fail("has invalid function call")
+            arguments = response_value(item, "arguments")
+            if not isinstance(arguments, str):
+                fail("has invalid function arguments")
+            try:
+                parsed = json.loads(arguments)
+            except (ValueError, TypeError):
+                fail("has invalid function arguments")
+            if not isinstance(parsed, dict):
+                fail("has invalid function arguments")
             calls.append(item)
         elif kind == "message":
             if response_value(item, "status") not in (None, "completed"):

@@ -229,6 +229,7 @@ class DeepReasoningAgent:
                 ollama_host=ollama_host,
                 openai_api_key=openai_api_key,
                 openai_base_url=openai_base_url,
+                openai_model=openai_model,
                 github_token=github_token,
                 foundry_endpoint=foundry_endpoint,
                 foundry_api_key=foundry_api_key,

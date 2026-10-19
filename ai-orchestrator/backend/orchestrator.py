@@ -20,7 +20,7 @@ try:
 except ImportError:
     _genai_module = None
     _GENAI_AVAILABLE = False
-from llm_providers import make_chat_provider
+from llm_providers import make_chat_provider, effective_chat_model, resolve_provider_name
 
 
 class Task(TypedDict):
@@ -121,8 +121,8 @@ class Orchestrator:
         self.approval_queue = approval_queue
         
         self.agents = agents
-        self.model_name = model_name
-        self.dashboard_model_name = (
+        self.model_name = effective_chat_model(model_name)
+        self.dashboard_model_name = effective_chat_model(
             os.getenv("DASHBOARD_MODEL")
             or os.getenv("DEEP_REASONING_MODEL")
             or model_name
@@ -194,14 +194,29 @@ class Orchestrator:
             if self.gemini_api_key and not _GENAI_AVAILABLE:
                 logger.warning("Gemini API key provided but google-genai package is not installed.")
             else:
-                logger.info("No Gemini API key found - visual dashboard will fallback to Ollama.")
+                logger.info("No Gemini API key found - visual dashboard uses the configured generation provider.")
             
         self.last_dashboard_instruction = "Mixergy-style smart home dashboard"
         self.dashboard_refresh_interval = int(os.getenv("DASHBOARD_REFRESH_INTERVAL", "300")) # 5 minutes
         
-        logger.info(f"Orchestrator initialized with model: {model_name}")
+        logger.info(f"Orchestrator initialized with model: {self.model_name}")
         logger.info(f"Managing {len(agents)} specialist agents: {list(agents.keys())}")
     
+    async def _generation_chat(self, messages: List[Dict], *, model: Optional[str] = None, json_mode: bool = False) -> str:
+        """Route legacy generation through the selected provider, off-loop."""
+        provider = getattr(self, "llm_provider", None)
+        if provider is None and resolve_provider_name() != "ollama":
+            provider = make_chat_provider()
+        if resolve_provider_name() == "openai_oauth" and getattr(provider, "name", None) != "openai_oauth":
+            raise RuntimeError("OpenAI OAuth generation provider is not active")
+        selected_model = effective_chat_model(model or self.model_name)
+        if provider is not None and provider.name != "ollama":
+            # Ollama-only format=json must not leak into Responses API.
+            return await asyncio.to_thread(provider.chat, selected_model, messages)
+        options = {"format": "json"} if json_mode else {}
+        response = await asyncio.to_thread(self.llm_client.chat, model=selected_model, messages=messages, **options)
+        return response["message"]["content"]
+
     def _load_conflict_rules(self) -> Dict:
         """Load conflict resolution rules"""
         return {
@@ -333,16 +348,16 @@ class Orchestrator:
         
         # Call LLM for high-level planning
         try:
-            response = self.llm_client.chat(
+            content = await self._generation_chat(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": "You are an AI orchestrator for home automation. Analyze the current home state and create tasks for specialist agents (heating, cooling, lighting, security)."},
                     {"role": "user", "content": prompt}
                 ],
-                format="json"
+                json_mode=True
             )
             
-            plan = json.loads(response["message"]["content"])
+            plan = json.loads(content)
             tasks = plan.get("tasks", [])
             
             # Convert to Task objects
@@ -611,12 +626,11 @@ INSTRUCTIONS:
 
         # 3. Call LLM
         try:
-            response = self.llm_client.chat(
+            content = await self._generation_chat(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                format="json"
+                json_mode=True
             )
-            content = response["message"]["content"]
         except Exception as e:
             logger.error(f"LLM Chat Error: {e}")
             import os
@@ -746,7 +760,7 @@ OUTPUT REQUIREMENTS:
         html_content = ""
         try:
             generation_timeout = float(getattr(self, "dashboard_generation_timeout", 180.0))
-            if self._genai_client and self.use_gemini_for_dashboard:
+            if self._genai_client and self.use_gemini_for_dashboard and resolve_provider_name() != "openai_oauth":
                 # Use Gemini for best design results
                 logger.info(f"Generating dashboard using Gemini model: {self.gemini_model_name}")
                 response = await asyncio.wait_for(
@@ -759,11 +773,10 @@ OUTPUT REQUIREMENTS:
                 )
                 html_content = response.text
             else:
-                # Fallback to local Ollama (might be less 'poppy' but functional)
+                # Use the configured generation provider, not a local-only fallback.
                 dashboard_model = getattr(self, "dashboard_model_name", self.model_name)
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self.llm_client.chat,
+                html_content = await asyncio.wait_for(
+                    self._generation_chat(
                         model=dashboard_model,
                         messages=[
                             {"role": "system", "content": system_prompt},
@@ -772,7 +785,7 @@ OUTPUT REQUIREMENTS:
                     ),
                     timeout=generation_timeout,
                 )
-                html_content = response["message"]["content"]
+
             
             # Clean up markdown code blocks if present
             import re

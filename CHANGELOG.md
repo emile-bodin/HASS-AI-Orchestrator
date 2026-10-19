@@ -1,6 +1,16 @@
 # Changelog
 <br>
 
+## [0.13.11] - 2026-10-19
+### Fixed — OAuth finalized output and effective model roles
+- Recover finalized `response.output_item.done` items by output index when the completed OAuth snapshot has empty/null output. A populated terminal snapshot stays authoritative; no text or tool arguments are invented from deltas.
+- Share the per-request accumulator between sync chat and async reasoning, retaining encrypted reasoning, function calls, usage, and continuation. Reject incomplete/failed/missing completion, unfinished items, identity conflicts, and malformed function arguments.
+- Use the configured `openai_model` for orchestrator, smart, fast, deep, and dashboard generation on OAuth, including legacy planning/chat/dashboard paths and startup logs. OAuth failures never fall back to Ollama generation. Saved Home Assistant role options are not rewritten.
+- Preserve explicit `enable_rag=false` and `dry_run_mode=false` in startup jq parsing. Missing/null values retain safe true defaults, consistently with backend parsing. RAG remains independent and still needs local Ollama embeddings when enabled.
+
+### Verification
+- Real SDK 2.45.0 local-SSE regressions cover empty/null terminal snapshots through guarded tool execution, observation, and final answer; genuine empty results still fail. Actual bash/jq tests cover boolean defaults and OAuth role logs. No live OAuth/Home Assistant inference is claimed; the exact earlier live SSE sequence remains unconfirmed.
+
 ## [0.13.10] - 2026-10-19
 ### Fixed — Empty agent outcomes
 - Empty, reasoning-only, refusal, commentary-only, incomplete, and unsupported Responses output no longer completes a goal successfully. Error diagnostics contain only allowlisted shape labels and counts, never model text, arguments, tokens, or encrypted reasoning.
