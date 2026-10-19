@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Cpu, Key, Loader2, Settings, ShieldCheck, Wand2, X } from 'lucide-react';
+import { Cpu, ExternalLink, Key, Loader2, Settings, ShieldCheck, Wand2, X } from 'lucide-react';
 import { useDialogFocus } from './useDialogFocus';
 
 const DEFAULT_GEMINI_DASHBOARD_MODEL = 'gemini-3.5-flash';
@@ -33,6 +33,32 @@ export const SettingsModal = ({ onClose, currentConfig, onUpdate }) => {
             setError(err.message);
         } finally {
             setLoading(null);
+        }
+    };
+
+    const startOpenAIOAuth = async () => {
+        setLoading('openai_oauth');
+        setError(null);
+        try {
+            const response = await fetch('api/openai/oauth/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || `${response.status}: OAuth start failed`);
+            window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(null);
+        }
+    };
+
+    const refreshOpenAIOAuth = async () => {
+        try {
+            const response = await fetch('api/openai/oauth/status');
+            const data = await response.json();
+            setConfig(prev => ({ ...prev, openai_oauth_status: data }));
+            onUpdate?.({ ...config, openai_oauth_status: data });
+        } catch (err) {
+            setError(err.message);
         }
     };
 
@@ -89,6 +115,20 @@ export const SettingsModal = ({ onClose, currentConfig, onUpdate }) => {
                             <input defaultValue={config.gemini_model_name || DEFAULT_GEMINI_DASHBOARD_MODEL} onBlur={event => updateConfigField('gemini_model_name', event.target.value)} />
                         </label>
                     </div>
+
+                    <article className="cp-setting-card">
+                        <span className="cp-setting-icon"><ExternalLink size={19} /></span>
+                        <div>
+                            <strong>OpenAI via ChatGPT OAuth</strong>
+                            <p>{config.openai_oauth_status?.authenticated ? `Connected${config.openai_oauth_status.account?.email ? ` as ${config.openai_oauth_status.account.email}` : ''}.` : 'Sign in with ChatGPT to use eligible Responses API models without an API key.'}</p>
+                        </div>
+                        <div className="cp-settings-actions">
+                            <button className="cp-button cp-button--primary" type="button" onClick={startOpenAIOAuth} disabled={!!loading}>
+                                {loading === 'openai_oauth' ? <Loader2 size={14} className="cp-spin" /> : <ExternalLink size={14} />} Sign in
+                            </button>
+                            <button className="cp-button" type="button" onClick={refreshOpenAIOAuth} disabled={!!loading}>Refresh</button>
+                        </div>
+                    </article>
 
                     <section className="cp-runtime-facts" aria-label="Runtime information">
                         <h3>Runtime information</h3>

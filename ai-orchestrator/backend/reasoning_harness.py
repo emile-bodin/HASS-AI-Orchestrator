@@ -643,6 +643,7 @@ class OpenAIResponsesBackend:
         effort: str = "medium",
         max_output_tokens: int = 8192,
         store: bool = False,
+        oauth_store: Any = None,
     ) -> None:
         try:
             from openai import AsyncOpenAI  # type: ignore
@@ -655,6 +656,7 @@ class OpenAIResponsesBackend:
         self.effort = _validate_effort(effort)
         self.max_output_tokens = max_output_tokens
         self.store = store
+        self._oauth_store = oauth_store
         self._client = AsyncOpenAI(
             api_key=key,
             base_url=base_url or os.getenv("OPENAI_BASE_URL") or None,
@@ -713,6 +715,10 @@ class OpenAIResponsesBackend:
             kwargs["previous_response_id"] = previous_response_id
         if not self.store:
             kwargs["include"] = ["reasoning.encrypted_content"]
+
+        if self._oauth_store is not None:
+            token = await self._oauth_store.get_access_token()
+            self._client.api_key = token
 
         resp = await self._client.responses.create(**kwargs)
         calls: List[ToolCall] = []

@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 PROVIDER_OLLAMA = "ollama"
 PROVIDER_OPENAI = "openai"
+PROVIDER_OPENAI_OAUTH = "openai_oauth"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_GITHUB = "github"
 PROVIDER_FOUNDRY = "foundry"
@@ -55,6 +56,7 @@ PROVIDER_FOUNDRY = "foundry"
 KNOWN_PROVIDERS = {
     PROVIDER_OLLAMA,
     PROVIDER_OPENAI,
+    PROVIDER_OPENAI_OAUTH,
     PROVIDER_ANTHROPIC,
     PROVIDER_GITHUB,
     PROVIDER_FOUNDRY,
@@ -216,6 +218,41 @@ class _OpenAICompatibleChatProvider(ChatProvider):
         return (resp.choices[0].message.content or "").strip()
 
 
+class _OpenAIOAuthChatProvider(ChatProvider):
+    name = PROVIDER_OPENAI_OAUTH
+
+    def __init__(self, model: str, oauth_store: Any) -> None:
+        self.model = model
+        self._oauth_store = oauth_store
+
+    def chat(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        extra_options: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        from openai import OpenAI  # type: ignore
+
+        token = self._oauth_store.get_access_token_sync()
+        client = OpenAI(api_key=token, base_url="https://api.openai.com/v1")
+        system = "\n\n".join(str(m.get("content") or "") for m in messages if m.get("role") == "system")
+        kwargs: Dict[str, Any] = {
+            "model": (model if model and not model.startswith("gemma4") else self.model),
+            "input": [m for m in messages if m.get("role") != "system"],
+            "max_output_tokens": max_tokens,
+            "store": False,
+        }
+        if system:
+            kwargs["instructions"] = system
+        if extra_options:
+            kwargs.update(extra_options)
+        response = client.responses.create(**kwargs)
+        return (getattr(response, "output_text", "") or "").strip()
+
+
 class _AnthropicChatProvider(ChatProvider):
     """Simple text surface for current Claude models."""
 
@@ -366,6 +403,8 @@ def make_chat_provider(
     ollama_host: Optional[str] = None,
     openai_api_key: Optional[str] = None,
     openai_base_url: Optional[str] = None,
+    openai_model: Optional[str] = None,
+    openai_oauth_store: Any = None,
     anthropic_api_key: Optional[str] = None,
     anthropic_model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
@@ -389,6 +428,12 @@ def make_chat_provider(
             key = _strip(openai_api_key) or _strip(os.getenv("OPENAI_API_KEY"))
             base = _strip(openai_base_url) or _strip(os.getenv("OPENAI_BASE_URL")) or "https://api.openai.com/v1"
             return _OpenAICompatibleChatProvider(name=PROVIDER_OPENAI, api_key=key, base_url=base)
+
+        if name == PROVIDER_OPENAI_OAUTH:
+            from openai_oauth import OpenAIOAuthStore
+            store = openai_oauth_store or OpenAIOAuthStore()
+            selected_model = _strip(openai_model) or _strip(os.getenv("OPENAI_MODEL")) or "gpt-5.4-mini"
+            return _OpenAIOAuthChatProvider(model=selected_model, oauth_store=store)
 
         if name == PROVIDER_ANTHROPIC:
             key = _strip(anthropic_api_key) or _strip(os.getenv("ANTHROPIC_API_KEY"))
@@ -470,6 +515,23 @@ def make_tool_backend(
                     store=os.getenv("OPENAI_STORE_RESPONSES", "false").lower() == "true",
                 )
             return OpenAIToolBackend(model=model, api_key=key, base_url=base, name=PROVIDER_OPENAI)
+
+        if name == PROVIDER_OPENAI_OAUTH:
+            from openai_oauth import OpenAIOAuthStore
+            store = OpenAIOAuthStore()
+            token = store.get_access_token_sync()
+            effort = _strip(reasoning_effort) or _strip(os.getenv("REASONING_EFFORT")) or "medium"
+            selected_model = _strip(os.getenv("OPENAI_MODEL")) or "gpt-5.4-mini"
+            if model and not model.startswith("gemma4"):
+                selected_model = model
+            return OpenAIResponsesBackend(
+                model=selected_model,
+                api_key=token,
+                base_url="https://api.openai.com/v1",
+                effort=effort,
+                store=False,
+                oauth_store=store,
+            )
 
         if name == PROVIDER_GITHUB:
             token = _strip(github_token) or _strip(os.getenv("GITHUB_TOKEN")) or _strip(os.getenv("GITHUB_MODELS_TOKEN"))

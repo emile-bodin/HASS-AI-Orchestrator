@@ -112,6 +112,7 @@ from ingress_middleware import IngressMiddleware
 from external_mcp import ExternalMCPClient
 from agents.deep_reasoning_agent import DeepReasoningAgent
 from reasoning_harness import REASONING_PROFILES
+from openai_oauth import OpenAIOAuthStore
 from memory_store import MemoryStore
 from native_prompts import NativePromptLibrary
 from plan_executor import PlanStore
@@ -172,6 +173,7 @@ rag_manager: Optional[RagManager] = None
 knowledge_base: Optional[KnowledgeBase] = None
 external_mcp: Optional[ExternalMCPClient] = None
 deep_reasoner: Optional[DeepReasoningAgent] = None
+openai_oauth_store: Optional[OpenAIOAuthStore] = None
 trigger_registry: Optional[TriggerRegistry] = None
 native_prompts: Optional[NativePromptLibrary] = None
 dashboard_studio: Optional[DashboardStudio] = None
@@ -302,9 +304,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager for startup/shutdown tasks"""
     global ha_client, mcp_server, approval_queue, orchestrator, agents
     global rag_manager, knowledge_base, external_mcp, deep_reasoner
-    global trigger_registry, native_prompts, dashboard_studio, _api_token
+    global trigger_registry, native_prompts, dashboard_studio, _api_token, openai_oauth_store
+    openai_oauth_store = OpenAIOAuthStore()
     _api_token = None
-    
+
     print("🚀 Starting AI Orchestrator backend (Phase 2 Multi-Agent)...")
     
     # 2. Load Configuration Options
@@ -1797,6 +1800,70 @@ async def refresh_dashboard():
     return {"status": "success", "length": len(html)}
 
 
+# ---------------------------------------------------------------------------
+# OpenAI Sign in with ChatGPT OAuth
+# ---------------------------------------------------------------------------
+class OpenAIOAuthStartRequest(BaseModel):
+    redirect_uri: Optional[str] = None
+    agent_name: Optional[str] = None
+
+
+class OpenAIOAuthCallbackRequest(BaseModel):
+    code: str
+    state: str
+    client_id: Optional[str] = None
+
+
+@app.get("/api/openai/oauth/status")
+async def openai_oauth_status():
+    if openai_oauth_store is None:
+        return {"authenticated": False, "error": "oauth_store_not_ready"}
+    return openai_oauth_store.status()
+
+
+@app.post("/api/openai/oauth/start")
+async def openai_oauth_start(req: OpenAIOAuthStartRequest):
+    if openai_oauth_store is None:
+        raise HTTPException(status_code=503, detail="OAuth store is not ready")
+    redirect_uri = (req.redirect_uri or os.getenv("OPENAI_OAUTH_REDIRECT_URI", "")).strip()
+    if not redirect_uri:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure openai_oauth_redirect_uri first. It must exactly match the OAuth callback URL.",
+        )
+    try:
+        return openai_oauth_store.begin_authorization(
+            redirect_uri,
+            (req.agent_name or os.getenv("OPENAI_OAUTH_AGENT_NAME", "HASS-AI-Orchestrator")).strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/openai/oauth/callback")
+async def openai_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    client_id: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    if error:
+        raise HTTPException(status_code=400, detail=f"OpenAI OAuth denied: {error}")
+    if openai_oauth_store is None or not code or not state:
+        raise HTTPException(status_code=400, detail="OAuth callback is incomplete")
+    try:
+        return await openai_oauth_store.complete_callback(code, state, client_id)
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/openai/oauth/logout")
+async def openai_oauth_logout():
+    if openai_oauth_store is None:
+        raise HTTPException(status_code=503, detail="OAuth store is not ready")
+    return openai_oauth_store.logout()
+
+
 @app.get("/api/config")
 async def get_config():
     """Get current configuration"""
@@ -1818,6 +1885,10 @@ async def get_config():
             deep_reasoner.default_profile if deep_reasoner else "balanced"
         ),
         "version": VERSION,
+        "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
+        "openai_oauth_redirect_uri": os.getenv("OPENAI_OAUTH_REDIRECT_URI", ""),
+        "openai_oauth_status": openai_oauth_store.status() if openai_oauth_store else {"authenticated": False},
         "gemini_active": orchestrator._genai_client is not None if orchestrator else False,
         "use_gemini_for_dashboard": orchestrator.use_gemini_for_dashboard if orchestrator else False,
         "gemini_model_name": orchestrator.gemini_model_name if orchestrator else DEFAULT_GEMINI_DASHBOARD_MODEL,
